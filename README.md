@@ -1,4 +1,12 @@
 # jackson-dataformat-msgpack
+
+**This project is merged to msgpack-java!!** Yay!
+
+**See msgpack-java/msgpack-jackson for the updated documents: [https://github.com/msgpack/msgpack-java/tree/v07-develop/msgpack-jackson](msgpack-java/msgpack-jackson)**
+
+
+# Overview
+
 [![Build Status](https://travis-ci.org/komamitsu/jackson-dataformat-msgpack.svg)](https://travis-ci.org/komamitsu/jackson-dataformat-msgpack)
 
 This Jackson extension library handles reading and writing of data encoded in [MessagePack](http://msgpack.org/) data format.
