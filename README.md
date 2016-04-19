@@ -2,7 +2,7 @@
 
 **This project is merged to msgpack-java!!** Yay!
 
-**See msgpack-java/msgpack-jackson for the updated documents: [https://github.com/msgpack/msgpack-java/tree/v07-develop/msgpack-jackson](msgpack-java/msgpack-jackson)**
+**See [msgpack-java/msgpack-jackson](https://github.com/msgpack/msgpack-java/blob/develop/msgpack-jackson/README.md) for the updated documents**
 
 
 # Overview
