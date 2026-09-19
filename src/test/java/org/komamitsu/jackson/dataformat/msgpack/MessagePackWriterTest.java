@@ -411,7 +411,7 @@ public class MessagePackWriterTest
         MessagePackWriter writer = new MessagePackWriter(newIOContext(), new ByteArrayOutputStream(), true);
         writer.openContainer(false, -1);
         assertThrows(IllegalStateException.class, writer::flush);
-        writer.discard();
+        writer.discardFrom(0);
         writer.flush();
         writer.release();
     }
@@ -424,7 +424,7 @@ public class MessagePackWriterTest
         writer.openContainer(true, -1);
         writer.packString("half written");
         assertEquals(1 + 1 + 12, writer.pending());
-        writer.discard();
+        writer.discardFrom(0);
         assertEquals(0, writer.pending());
         writer.packInt(1);
         writer.flush();

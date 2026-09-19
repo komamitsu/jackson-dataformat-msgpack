@@ -16,6 +16,7 @@
 package org.komamitsu.jackson.dataformat.msgpack;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DatabindException;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -23,7 +24,8 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class MessagePackMapperTest
 {
@@ -42,13 +44,9 @@ public class MessagePackMapperTest
         PojoWithBigInteger obj = new PojoWithBigInteger();
         obj.value = BigInteger.valueOf(Long.MAX_VALUE).multiply(BigInteger.valueOf(10));
 
-        try {
-            messagePackMapper.writeValueAsBytes(obj);
-            fail();
-        }
-        catch (IllegalArgumentException e) {
-            // Expected
-        }
+        // Raised while the property is being written, so databind wraps it with the path.
+        DatabindException e = assertThrows(DatabindException.class, () -> messagePackMapper.writeValueAsBytes(obj));
+        assertInstanceOf(IllegalArgumentException.class, e.getCause());
     }
 
     private void shouldSuccessToHandleBigInteger(MessagePackMapper messagePackMapper) throws IOException
@@ -67,13 +65,8 @@ public class MessagePackMapperTest
         PojoWithBigDecimal obj = new PojoWithBigDecimal();
         obj.value = new BigDecimal("1234567890.98765432100");
 
-        try {
-            messagePackMapper.writeValueAsBytes(obj);
-            fail();
-        }
-        catch (IllegalArgumentException e) {
-            // Expected
-        }
+        DatabindException e = assertThrows(DatabindException.class, () -> messagePackMapper.writeValueAsBytes(obj));
+        assertInstanceOf(IllegalArgumentException.class, e.getCause());
     }
 
     private void shouldSuccessToHandleBigDecimal(MessagePackMapper messagePackMapper) throws IOException

@@ -27,6 +27,7 @@ import tools.jackson.core.StreamWriteFeature;
 import tools.jackson.core.TokenStreamContext;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.ValueSerializer;
@@ -64,6 +65,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -349,13 +351,9 @@ public class MessagePackGeneratorTest
                     decimal
             );
 
-            try {
-                mapper.writeValueAsBytes(bigDecimals);
-                assertTrue(false);
-            }
-            catch (IllegalArgumentException e) {
-                assertTrue(true);
-            }
+            // Raised while the element is being written, so databind wraps it with the path.
+            DatabindException e = assertThrows(DatabindException.class, () -> mapper.writeValueAsBytes(bigDecimals));
+            assertInstanceOf(IllegalArgumentException.class, e.getCause());
         }
     }
 
@@ -1182,6 +1180,156 @@ public class MessagePackGeneratorTest
         generator.writeNumber(1);
         generator.writeEndObject();
         generator.close();
+    }
+
+    private static byte[] generate(MessagePackFactory factory, java.util.function.Consumer<JsonGenerator> body)
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = factory.createGenerator(ObjectWriteContext.empty(), out)) {
+            body.accept(gen);
+        }
+        return out.toByteArray();
+    }
+
+    @Test
+    public void sizeHintProducesSameBytesAsNoHint()
+    {
+        int[] sizes = {0, 1, 15, 16, 300, 70_000};
+        for (int size : sizes) {
+            byte[] unhinted = generate(new MessagePackFactory(), gen -> {
+                gen.writeStartArray();
+                for (int i = 0; i < size; i++) {
+                    gen.writeNumber(i);
+                }
+                gen.writeEndArray();
+            });
+            byte[] hinted = generate(new MessagePackFactory(), gen -> {
+                gen.writeStartArray(null, size);
+                for (int i = 0; i < size; i++) {
+                    gen.writeNumber(i);
+                }
+                gen.writeEndArray();
+            });
+            assertArrayEquals(unhinted, hinted, "size " + size);
+
+            byte[] unhintedObject = generate(new MessagePackFactory(), gen -> {
+                gen.writeStartObject();
+                for (int i = 0; i < size; i++) {
+                    gen.writeName("k" + i);
+                    gen.writeNumber(i);
+                }
+                gen.writeEndObject();
+            });
+            byte[] hintedObject = generate(new MessagePackFactory(), gen -> {
+                gen.writeStartObject(null, size);
+                for (int i = 0; i < size; i++) {
+                    gen.writeName("k" + i);
+                    gen.writeNumber(i);
+                }
+                gen.writeEndObject();
+            });
+            assertArrayEquals(unhintedObject, hintedObject, "size " + size);
+        }
+    }
+
+    @Test
+    public void wrongSizeHintIsCorrectedOnClose() throws IOException
+    {
+        // Hints that reserve a shorter and a longer header than the real count needs.
+        int[][] cases = {{3, 20}, {20, 3}, {0, 70_000}, {70_000, 0}, {16, 15}};
+        for (int[] c : cases) {
+            int hint = c[0];
+            int actual = c[1];
+            byte[] bytes = generate(new MessagePackFactory(), gen -> {
+                gen.writeStartArray(null, hint);
+                for (int i = 0; i < actual; i++) {
+                    gen.writeNull();
+                }
+                gen.writeEndArray();
+            });
+            try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
+                assertEquals(actual, unpacker.unpackArrayHeader(), "hint " + hint);
+                for (int i = 0; i < actual; i++) {
+                    unpacker.unpackNil();
+                }
+                assertFalse(unpacker.hasNext());
+            }
+        }
+    }
+
+    @Test
+    public void closingWithOpenContainersFinishesThemByDefault() throws IOException
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out);
+        gen.writeStartObject();
+        gen.writeName("a");
+        gen.writeStartArray();
+        gen.writeNumber(1);
+        gen.close();
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("a", unpacker.unpackString());
+            assertEquals(1, unpacker.unpackArrayHeader());
+            assertEquals(1, unpacker.unpackInt());
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
+    @Test
+    public void closingWithOpenContainersWritesNothingWhenAutoCloseContentIsOff()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        MessagePackFactory factory = (MessagePackFactory) new MessagePackFactory().rebuild()
+                .disable(StreamWriteFeature.AUTO_CLOSE_CONTENT)
+                .build();
+        JsonGenerator gen = factory.createGenerator(ObjectWriteContext.empty(), out);
+        gen.writeNumber(42);
+        gen.writeStartObject();
+        gen.writeName("a");
+        gen.writeNumber(1);
+        gen.close();
+
+        // The complete root value before the unfinished one is kept; the unfinished one is dropped.
+        assertArrayEquals(new byte[] {42}, out.toByteArray());
+    }
+
+    @Test
+    public void nestingDeeperThanTheConstraintFails()
+    {
+        MessagePackFactory factory = (MessagePackFactory) new MessagePackFactory().rebuild()
+                .streamWriteConstraints(tools.jackson.core.StreamWriteConstraints.builder().maxNestingDepth(10).build())
+                .build();
+        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> generate(factory, gen -> {
+            for (int i = 0; i < 11; i++) {
+                gen.writeStartArray();
+            }
+        }));
+        // Right at the limit is fine.
+        generate(factory, gen -> {
+            for (int i = 0; i < 10; i++) {
+                gen.writeStartArray();
+            }
+            for (int i = 0; i < 10; i++) {
+                gen.writeEndArray();
+            }
+        });
+    }
+
+    @Test
+    public void bufferedByteCountIsReported()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out);
+        assertEquals(0, gen.streamWriteOutputBuffered());
+        gen.writeStartArray();
+        gen.writeString("hello");
+        assertEquals(1 + 1 + 5, gen.streamWriteOutputBuffered());
+        gen.writeEndArray();
+        gen.flush();
+        assertEquals(0, gen.streamWriteOutputBuffered());
+        gen.close();
     }
 
     @Test

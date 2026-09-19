@@ -268,11 +268,12 @@ final class MessagePackWriter
     }
 
     /**
-     * Drops everything not yet written to the stream and leaves hold mode.
+     * Drops everything encoded from the given offset on and leaves hold mode. Used to
+     * abandon an unfinished container while keeping complete values written before it.
      */
-    void discard()
+    void discardFrom(int offset)
     {
-        pos = 0;
+        pos = offset;
         holdDepth = 0;
     }
 

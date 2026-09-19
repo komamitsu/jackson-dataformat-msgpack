@@ -28,12 +28,17 @@ class MessagePackWriteContext extends TokenStreamContext
     private Object currentValue;
     // For TYPE_OBJECT: true after writeName (expecting value), false after writeValue (expecting name)
     private boolean gotName;
+    // Where this container's header sits in the writer buffer, and how many bytes were
+    // reserved for it, so the header can be patched with the final count on close.
+    private int headerOffset;
+    private int reservedHeaderLength;
 
     private MessagePackWriteContext(int type, MessagePackWriteContext parent, DupDetector dups)
     {
         super(type, -1);
         this.parent = parent;
         this.dups = dups;
+        _nestingDepth = parent == null ? 0 : parent._nestingDepth + 1;
     }
 
     private MessagePackWriteContext reset(int type, Object value)
@@ -78,6 +83,22 @@ class MessagePackWriteContext extends TokenStreamContext
     public MessagePackWriteContext getParent()
     {
         return parent;
+    }
+
+    void setHeader(int offset, int reservedLength)
+    {
+        headerOffset = offset;
+        reservedHeaderLength = reservedLength;
+    }
+
+    int headerOffset()
+    {
+        return headerOffset;
+    }
+
+    int reservedHeaderLength()
+    {
+        return reservedHeaderLength;
     }
 
     boolean isExpectingValue()
