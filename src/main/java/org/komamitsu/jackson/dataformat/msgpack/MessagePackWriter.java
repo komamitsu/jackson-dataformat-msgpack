@@ -39,7 +39,6 @@ final class MessagePackWriter
     private static final int NANOS_PER_SECOND = 1_000_000_000;
     // Largest fixed-size write: EXT8 header (3) plus a timestamp96 payload (12).
     private static final int MAX_FIXED_WRITE = 15;
-    private static final int STANDALONE_BUFFER_SIZE = 2000;
     private static final int MAX_CONTAINER_HEADER = 5;
 
     private final IOContext ioContext;
@@ -59,16 +58,6 @@ final class MessagePackWriter
         this.str8FormatSupport = str8FormatSupport;
         this.buf = ioContext.allocWriteEncodingBuffer();
         this.borrowed = true;
-    }
-
-    // For nested generators, whose IOContext already has its write buffer checked out by the
-    // enclosing generator. An IOContext refuses to hand out the same buffer twice.
-    MessagePackWriter(OutputStream out, boolean str8FormatSupport)
-    {
-        this.ioContext = null;
-        this.out = out;
-        this.str8FormatSupport = str8FormatSupport;
-        this.buf = new byte[STANDALONE_BUFFER_SIZE];
     }
 
     void packNil() throws IOException

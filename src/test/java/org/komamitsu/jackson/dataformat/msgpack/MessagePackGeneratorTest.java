@@ -1332,6 +1332,59 @@ public class MessagePackGeneratorTest
         gen.close();
     }
 
+    static class KeyWithList
+    {
+        public String name;
+        public List<Integer> values;
+
+        KeyWithList(String name, List<Integer> values)
+        {
+            this.name = name;
+            this.values = values;
+        }
+    }
+
+    @Test
+    public void complexKeyWithNestedContainerIsWrittenInPlace() throws IOException
+    {
+        // The key's own containers get patched inside the parent's buffer, between the
+        // parent map's reserved header and the value that follows.
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+
+        Map<KeyWithList, List<String>> map = new java.util.LinkedHashMap<>();
+        map.put(new KeyWithList("first", Arrays.asList(1, 2, 3)), Arrays.asList("a", "b"));
+        map.put(new KeyWithList("second", java.util.Collections.emptyList()), Arrays.asList("c"));
+        byte[] bytes = mapper.writeValueAsBytes(map);
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
+            assertEquals(2, unpacker.unpackMapHeader());
+
+            assertEquals(2, unpacker.unpackMapHeader());
+            assertEquals("name", unpacker.unpackString());
+            assertEquals("first", unpacker.unpackString());
+            assertEquals("values", unpacker.unpackString());
+            assertEquals(3, unpacker.unpackArrayHeader());
+            assertEquals(1, unpacker.unpackInt());
+            assertEquals(2, unpacker.unpackInt());
+            assertEquals(3, unpacker.unpackInt());
+            assertEquals(2, unpacker.unpackArrayHeader());
+            assertEquals("a", unpacker.unpackString());
+            assertEquals("b", unpacker.unpackString());
+
+            assertEquals(2, unpacker.unpackMapHeader());
+            assertEquals("name", unpacker.unpackString());
+            assertEquals("second", unpacker.unpackString());
+            assertEquals("values", unpacker.unpackString());
+            assertEquals(0, unpacker.unpackArrayHeader());
+            assertEquals(1, unpacker.unpackArrayHeader());
+            assertEquals("c", unpacker.unpackString());
+
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
     @Test
     public void testVersion()
     {

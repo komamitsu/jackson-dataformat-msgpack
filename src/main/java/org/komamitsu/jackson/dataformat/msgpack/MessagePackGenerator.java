@@ -28,7 +28,6 @@ import tools.jackson.core.TokenStreamContext;
 import tools.jackson.core.base.GeneratorBase;
 import tools.jackson.core.io.IOContext;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Reader;
@@ -45,6 +44,8 @@ public class MessagePackGenerator
         extends GeneratorBase
 {
     private final MessagePackWriter writer;
+    // False for a nested generator writing a complex key into its parent's writer.
+    private final boolean ownsWriter;
     private final OutputStream output;
     private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
@@ -59,23 +60,23 @@ public class MessagePackGenerator
             boolean supportIntegerKeys)
     {
         this(writeCtxt, ioCtxt, streamWriteFeatures, out,
-                new MessagePackWriter(ioCtxt, out, str8FormatSupport), str8FormatSupport, supportIntegerKeys);
+                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, str8FormatSupport, supportIntegerKeys);
     }
 
-    // Nested serialization passes a writer that does not borrow the IOContext's buffer,
-    // since the enclosing generator already holds it.
     private MessagePackGenerator(
             ObjectWriteContext writeCtxt,
             IOContext ioCtxt,
             int streamWriteFeatures,
             OutputStream out,
             MessagePackWriter writer,
+            boolean ownsWriter,
             boolean str8FormatSupport,
             boolean supportIntegerKeys)
     {
         super(writeCtxt, ioCtxt, streamWriteFeatures);
         this.output = out;
         this.writer = writer;
+        this.ownsWriter = ownsWriter;
         this.str8FormatSupport = str8FormatSupport;
         this.supportIntegerKeys = supportIntegerKeys;
         this.writeContext = MessagePackWriteContext.createRootContext(
@@ -212,14 +213,13 @@ public class MessagePackGenerator
             packExtensionType((MessagePackExtensionType) key);
         }
         else {
-            // Any other key type is serialized as a nested value in key position.
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            // Any other key type is serialized as a nested value in key position, straight into
+            // this generator's writer. The nested generator only tracks its own context stack.
             try (MessagePackGenerator nested = new MessagePackGenerator(
-                    objectWriteContext(), _ioContext, _streamWriteFeatures, outputStream,
-                    new MessagePackWriter(outputStream, str8FormatSupport), str8FormatSupport, supportIntegerKeys)) {
+                    objectWriteContext(), _ioContext, _streamWriteFeatures, output,
+                    writer, false, str8FormatSupport, supportIntegerKeys)) {
                 objectWriteContext().writeValue(nested, key);
             }
-            writer.writePayload(outputStream.toByteArray());
         }
     }
 
@@ -651,7 +651,7 @@ public class MessagePackGenerator
     @Override
     public void flush() throws JacksonException
     {
-        if (!writeContext.inRoot()) {
+        if (!ownsWriter || !writeContext.inRoot()) {
             // Headers of open containers are still to be patched, so nothing can be written yet.
             return;
         }
@@ -702,7 +702,7 @@ public class MessagePackGenerator
     @Override
     protected void _closeInput() throws IOException
     {
-        if (StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
+        if (ownsWriter && StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
             writer.close();
         }
     }
@@ -710,7 +710,9 @@ public class MessagePackGenerator
     @Override
     protected void _releaseBuffers()
     {
-        writer.release();
+        if (ownsWriter) {
+            writer.release();
+        }
     }
 
     @Override
