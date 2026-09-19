@@ -159,14 +159,9 @@ public class MessagePackFactory
     protected JsonGenerator _createGenerator(ObjectWriteContext writeCtxt, IOContext ioCtxt,
             OutputStream out) throws JacksonException
     {
-        try {
-            return new MessagePackGenerator(writeCtxt, ioCtxt,
-                    writeCtxt.getStreamWriteFeatures(_streamWriteFeatures),
-                    out, packerConfig, reuseResourceInGenerator, supportIntegerKeys);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        return new MessagePackGenerator(writeCtxt, ioCtxt,
+                writeCtxt.getStreamWriteFeatures(_streamWriteFeatures),
+                out, packerConfig.isStr8FormatSupport(), supportIntegerKeys);
     }
 
     @Override

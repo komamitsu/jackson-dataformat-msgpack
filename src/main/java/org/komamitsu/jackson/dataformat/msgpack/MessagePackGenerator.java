@@ -27,10 +27,6 @@ import tools.jackson.core.json.DupDetector;
 import tools.jackson.core.TokenStreamContext;
 import tools.jackson.core.base.GeneratorBase;
 import tools.jackson.core.io.IOContext;
-import org.msgpack.core.MessagePack;
-import org.msgpack.core.MessagePacker;
-import org.msgpack.core.buffer.MessageBufferOutput;
-import org.msgpack.core.buffer.OutputStreamBufferOutput;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -49,12 +45,9 @@ public class MessagePackGenerator
     private static final int IN_ROOT = 0;
     private static final int IN_OBJECT = 1;
     private static final int IN_ARRAY = 2;
-    private final MessagePacker messagePacker;
-    // Retained heap per idle thread: ~8 KB (OutputStreamBufferOutput + internal MessageBuffer).
-    // Negligible compared to Jackson's own per-thread buffer retention.
-    private static final ThreadLocal<OutputStreamBufferOutput> messageBufferOutputHolder = new ThreadLocal<>();
+    private final MessagePackWriter writer;
     private final OutputStream output;
-    private final MessagePack.PackerConfig packerConfig;
+    private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
 
     private int currentParentElementIndex = -1;
@@ -62,7 +55,6 @@ public class MessagePackGenerator
     private final List<Node> nodes;
     private boolean isElementsClosed = false;
     private MessagePackWriteContext writeContext;
-    private final boolean ownsThreadLocalBuffer;
 
     private static final class RawUtf8String
     {
@@ -195,69 +187,38 @@ public class MessagePackGenerator
         }
     }
 
-    // Internal constructor for nested serialization.
-    private MessagePackGenerator(
-            ObjectWriteContext writeCtxt,
-            IOContext ioCtxt,
-            int streamWriteFeatures,
-            OutputStream out,
-            MessagePack.PackerConfig packerConfig,
-            boolean supportIntegerKeys)
-    {
-        super(writeCtxt, ioCtxt, streamWriteFeatures);
-        this.output = out;
-        this.messagePacker = packerConfig.newPacker(out);
-        this.packerConfig = packerConfig;
-        this.nodes = new ArrayList<>();
-        this.supportIntegerKeys = supportIntegerKeys;
-        this.writeContext = MessagePackWriteContext.createRootContext(
-                StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
-                        ? DupDetector.rootDetector(this) : null);
-        this.ownsThreadLocalBuffer = false;
-    }
-
     public MessagePackGenerator(
             ObjectWriteContext writeCtxt,
             IOContext ioCtxt,
             int streamWriteFeatures,
             OutputStream out,
-            MessagePack.PackerConfig packerConfig,
-            boolean reuseResourceInGenerator,
+            boolean str8FormatSupport,
             boolean supportIntegerKeys)
-            throws IOException
+    {
+        this(writeCtxt, ioCtxt, streamWriteFeatures, out,
+                new MessagePackWriter(ioCtxt, out, str8FormatSupport), str8FormatSupport, supportIntegerKeys);
+    }
+
+    // Nested serialization passes a writer that does not borrow the IOContext's buffer,
+    // since the enclosing generator already holds it.
+    private MessagePackGenerator(
+            ObjectWriteContext writeCtxt,
+            IOContext ioCtxt,
+            int streamWriteFeatures,
+            OutputStream out,
+            MessagePackWriter writer,
+            boolean str8FormatSupport,
+            boolean supportIntegerKeys)
     {
         super(writeCtxt, ioCtxt, streamWriteFeatures);
         this.output = out;
-        this.messagePacker = packerConfig.newPacker(getMessageBufferOutputForOutputStream(out, reuseResourceInGenerator));
-        this.packerConfig = packerConfig;
+        this.writer = writer;
+        this.str8FormatSupport = str8FormatSupport;
         this.nodes = new ArrayList<>();
         this.supportIntegerKeys = supportIntegerKeys;
         this.writeContext = MessagePackWriteContext.createRootContext(
                 StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
                         ? DupDetector.rootDetector(this) : null);
-        this.ownsThreadLocalBuffer = reuseResourceInGenerator;
-    }
-
-    private MessageBufferOutput getMessageBufferOutputForOutputStream(
-            OutputStream out,
-            boolean reuseResourceInGenerator)
-            throws IOException
-    {
-        OutputStreamBufferOutput messageBufferOutput;
-        if (reuseResourceInGenerator) {
-            messageBufferOutput = messageBufferOutputHolder.get();
-            if (messageBufferOutput == null) {
-                messageBufferOutput = new OutputStreamBufferOutput(out);
-                messageBufferOutputHolder.set(messageBufferOutput);
-            }
-            else {
-                messageBufferOutput.reset(out);
-            }
-        }
-        else {
-            messageBufferOutput = new OutputStreamBufferOutput(out);
-        }
-        return messageBufferOutput;
     }
 
     private String currentStateStr()
@@ -389,80 +350,77 @@ public class MessagePackGenerator
     private void packNonContainer(Object v)
             throws IOException
     {
-        MessagePacker messagePacker = getMessagePacker();
         if (v instanceof String) {
-            messagePacker.packString((String) v);
+            writer.packString((String) v);
         }
         else if (v instanceof RawUtf8String) {
             RawUtf8String raw = (RawUtf8String) v;
-            messagePacker.packRawStringHeader(raw.len);
-            messagePacker.writePayload(raw.bytes, raw.offset, raw.len);
+            writer.packRawStringHeader(raw.len);
+            writer.writePayload(raw.bytes, raw.offset, raw.len);
         }
         else if (v instanceof Integer) {
-            messagePacker.packInt((Integer) v);
+            writer.packInt((Integer) v);
         }
         else if (v == null) {
-            messagePacker.packNil();
+            writer.packNil();
         }
         else if (v instanceof Float) {
-            messagePacker.packFloat((Float) v);
+            writer.packFloat((Float) v);
         }
         else if (v instanceof Long) {
-            messagePacker.packLong((Long) v);
+            writer.packLong((Long) v);
         }
         else if (v instanceof Double) {
-            messagePacker.packDouble((Double) v);
+            writer.packDouble((Double) v);
         }
         else if (v instanceof BigInteger) {
-            messagePacker.packBigInteger((BigInteger) v);
+            writer.packBigInteger((BigInteger) v);
         }
         else if (v instanceof BigDecimal) {
             packBigDecimal((BigDecimal) v);
         }
         else if (v instanceof Boolean) {
-            messagePacker.packBoolean((Boolean) v);
+            writer.packBoolean((Boolean) v);
         }
         else if (v instanceof ByteBuffer) {
             ByteBuffer bb = (ByteBuffer) v;
             int len = bb.remaining();
             if (bb.hasArray() && !bb.isReadOnly()) {
-                messagePacker.packBinaryHeader(len);
-                messagePacker.writePayload(bb.array(), bb.arrayOffset() + bb.position(), len);
+                writer.packBinaryHeader(len);
+                writer.writePayload(bb.array(), bb.arrayOffset() + bb.position(), len);
             }
             else {
                 byte[] data = new byte[len];
                 bb.duplicate().get(data);
-                messagePacker.packBinaryHeader(len);
-                messagePacker.addPayload(data);
+                writer.packBinaryHeader(len);
+                writer.addPayload(data);
             }
         }
         else if (v instanceof MessagePackExtensionType) {
             MessagePackExtensionType extensionType = (MessagePackExtensionType) v;
             byte[] extData = extensionType.getData();
-            messagePacker.packExtensionTypeHeader(extensionType.getType(), extData.length);
-            messagePacker.writePayload(extData);
+            writer.packExtensionTypeHeader(extensionType.getType(), extData.length);
+            writer.writePayload(extData);
         }
         else {
-            messagePacker.flush();
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             try (MessagePackGenerator messagePackGenerator = new MessagePackGenerator(
-                    objectWriteContext(), _ioContext, _streamWriteFeatures,
-                    outputStream, packerConfig, supportIntegerKeys)) {
+                    objectWriteContext(), _ioContext, _streamWriteFeatures, outputStream,
+                    new MessagePackWriter(outputStream, str8FormatSupport), str8FormatSupport, supportIntegerKeys)) {
                 objectWriteContext().writeValue(messagePackGenerator, v);
             }
-            output.write(outputStream.toByteArray());
+            writer.writePayload(outputStream.toByteArray());
         }
     }
 
     private void packBigDecimal(BigDecimal decimal)
             throws IOException
     {
-        MessagePacker messagePacker = getMessagePacker();
         boolean failedToPackAsBI = false;
         try {
             //Check to see if this BigDecimal can be converted to BigInteger
             BigInteger integer = decimal.toBigIntegerExact();
-            messagePacker.packBigInteger(integer);
+            writer.packBigInteger(integer);
         }
         catch (ArithmeticException | IllegalArgumentException e) {
             failedToPackAsBI = true;
@@ -474,22 +432,20 @@ public class MessagePackGenerator
             if (Double.isInfinite(doubleValue) || decimal.compareTo(BigDecimal.valueOf(doubleValue)) != 0) {
                 throw new IllegalArgumentException("MessagePack cannot serialize a BigDecimal that can't be represented as double. " + decimal);
             }
-            messagePacker.packDouble(doubleValue);
+            writer.packDouble(doubleValue);
         }
     }
 
     private void packObject(NodeObject container)
             throws IOException
     {
-        MessagePacker messagePacker = getMessagePacker();
-        messagePacker.packMapHeader(container.childCount);
+        writer.packMapHeader(container.childCount);
     }
 
     private void packArray(NodeArray container)
             throws IOException
     {
-        MessagePacker messagePacker = getMessagePacker();
-        messagePacker.packArrayHeader(container.childCount);
+        writer.packArrayHeader(container.childCount);
     }
 
     private void addKeyNode(Object key)
@@ -960,7 +916,7 @@ public class MessagePackGenerator
     private void flushMessagePacker()
             throws IOException
     {
-        getMessagePacker().flush();
+        writer.flush();
     }
 
     @Override
@@ -1003,27 +959,14 @@ public class MessagePackGenerator
     protected void _closeInput() throws IOException
     {
         if (StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
-            messagePacker.close();
+            writer.close();
         }
     }
 
     @Override
     protected void _releaseBuffers()
     {
-        // No null check on get(): generators are single-threaded by contract so this
-        // ThreadLocal is always set on the calling thread. A null here would indicate
-        // cross-thread misuse; letting it NPE surfaces that bug immediately.
-        if (ownsThreadLocalBuffer) {
-            OutputStreamBufferOutput buf = messageBufferOutputHolder.get();
-            if (buf != null) {
-                try {
-                    buf.reset(null);
-                }
-                catch (IOException e) {
-                    throw _wrapIOFailure(e);
-                }
-            }
-        }
+        writer.release();
     }
 
     @Override
@@ -1032,10 +975,5 @@ public class MessagePackGenerator
         if (!writeContext.writeValue()) {
             _reportError("Cannot " + typeMsg + ", expecting a property name");
         }
-    }
-
-    private MessagePacker getMessagePacker()
-    {
-        return messagePacker;
     }
 }
