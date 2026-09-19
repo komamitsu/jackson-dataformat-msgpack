@@ -504,8 +504,7 @@ public class MessagePackGeneratorTest
         byte[] resultWithStr8Format = defaultMapper.writeValueAsBytes(str8LengthString);
         assertEquals(resultWithStr8Format[0], MessagePack.Code.STR8);
 
-        MessagePack.PackerConfig config = new MessagePack.PackerConfig().withStr8FormatSupport(false);
-        ObjectMapper mapperWithConfig = new MessagePackMapper(new MessagePackFactory(config));
+        ObjectMapper mapperWithConfig = new MessagePackMapper(new MessagePackFactory().setStr8FormatSupport(false));
         byte[] resultWithoutStr8Format = mapperWithConfig.writeValueAsBytes(str8LengthString);
         assertNotEquals(resultWithoutStr8Format[0], MessagePack.Code.STR8);
     }
@@ -944,8 +943,7 @@ public class MessagePackGeneratorTest
     @Test
     public void testNestedSerialization() throws Exception
     {
-        ObjectMapper objectMapper = new MessagePackMapper(
-                new MessagePackFactory().setReuseResourceInGenerator(false));
+        ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory());
         OuterClass outerClass = objectMapper.readValue(
                 objectMapper.writeValueAsBytes(new OuterClass("Foo")),
                 OuterClass.class);

@@ -28,7 +28,7 @@ jmh {
 // Not a JMH benchmark: a standalone main() that measures heap retained per idle thread.
 tasks.register<JavaExec>("threadLocalMemory") {
     group = "benchmark"
-    description = "Measures heap retained by generator and parser ThreadLocals across idle threads."
+    description = "Measures heap retained per idle thread after a generator or parser call."
     classpath = sourceSets["jmh"].runtimeClasspath
     mainClass = "org.komamitsu.jackson.dataformat.msgpack.benchmark.ThreadLocalMemoryBenchmark"
     javaLauncher = javaToolchains.launcherFor(java.toolchain)

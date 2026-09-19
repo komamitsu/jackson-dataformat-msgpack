@@ -31,8 +31,6 @@ import tools.jackson.core.TokenStreamFactory;
 import tools.jackson.core.Version;
 import tools.jackson.core.base.BinaryTSFactory;
 import tools.jackson.core.io.IOContext;
-import org.msgpack.core.MessagePack;
-import org.msgpack.core.annotations.VisibleForTesting;
 
 import java.io.DataInput;
 import java.io.InputStream;
@@ -44,30 +42,20 @@ public class MessagePackFactory
 {
     private static final long serialVersionUID = 2578263992015504348L;
 
-    private final MessagePack.PackerConfig packerConfig;
-    private boolean reuseResourceInGenerator = true;
-    private boolean reuseResourceInParser = true;
+    private boolean str8FormatSupport = true;
     private boolean supportIntegerKeys = false;
     private ExtensionTypeCustomDeserializers extTypeCustomDesers;
 
     public MessagePackFactory()
     {
-        this(MessagePack.DEFAULT_PACKER_CONFIG);
-    }
-
-    public MessagePackFactory(MessagePack.PackerConfig packerConfig)
-    {
         super(StreamReadConstraints.defaults(), StreamWriteConstraints.defaults(),
                 ErrorReportConfiguration.defaults(), 0, 0);
-        this.packerConfig = packerConfig;
     }
 
     public MessagePackFactory(MessagePackFactory src)
     {
         super(src);
-        this.packerConfig = src.packerConfig.clone();
-        this.reuseResourceInGenerator = src.reuseResourceInGenerator;
-        this.reuseResourceInParser = src.reuseResourceInParser;
+        this.str8FormatSupport = src.str8FormatSupport;
         this.supportIntegerKeys = src.supportIntegerKeys;
         if (src.extTypeCustomDesers != null) {
             this.extTypeCustomDesers = new ExtensionTypeCustomDeserializers(src.extTypeCustomDesers);
@@ -77,22 +65,18 @@ public class MessagePackFactory
     protected MessagePackFactory(MessagePackFactoryBuilder b)
     {
         super(b);
-        this.packerConfig = b.packerConfig().clone();
-        this.reuseResourceInGenerator = b.reuseResourceInGenerator();
-        this.reuseResourceInParser = b.reuseResourceInParser();
+        this.str8FormatSupport = b.str8FormatSupport();
         this.supportIntegerKeys = b.supportIntegerKeys();
         this.extTypeCustomDesers = b.extTypeCustomDesers();
     }
 
-    public MessagePackFactory setReuseResourceInGenerator(boolean reuseResourceInGenerator)
+    /**
+     * Whether strings of 32 to 255 bytes use the str8 format. Disable for readers that
+     * predate str8 in the MessagePack specification, which then get str16 instead.
+     */
+    public MessagePackFactory setStr8FormatSupport(boolean str8FormatSupport)
     {
-        this.reuseResourceInGenerator = reuseResourceInGenerator;
-        return this;
-    }
-
-    public MessagePackFactory setReuseResourceInParser(boolean reuseResourceInParser)
-    {
-        this.reuseResourceInParser = reuseResourceInParser;
+        this.str8FormatSupport = str8FormatSupport;
         return this;
     }
 
@@ -149,7 +133,7 @@ public class MessagePackFactory
     {
         return new MessagePackGenerator(writeCtxt, ioCtxt,
                 writeCtxt.getStreamWriteFeatures(_streamWriteFeatures),
-                out, packerConfig.isStr8FormatSupport(), supportIntegerKeys);
+                out, str8FormatSupport, supportIntegerKeys);
     }
 
     @Override
@@ -177,21 +161,9 @@ public class MessagePackFactory
     }
 
     @VisibleForTesting
-    MessagePack.PackerConfig getPackerConfig()
+    boolean isStr8FormatSupport()
     {
-        return packerConfig;
-    }
-
-    @VisibleForTesting
-    boolean isReuseResourceInGenerator()
-    {
-        return reuseResourceInGenerator;
-    }
-
-    @VisibleForTesting
-    boolean isReuseResourceInParser()
-    {
-        return reuseResourceInParser;
+        return str8FormatSupport;
     }
 
     @VisibleForTesting

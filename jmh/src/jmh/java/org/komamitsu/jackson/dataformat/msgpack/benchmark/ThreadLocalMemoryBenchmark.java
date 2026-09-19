@@ -19,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.core.json.JsonFactory;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.core.util.JsonRecyclerPools;
+import org.komamitsu.jackson.dataformat.msgpack.MessagePackFactory;
 import org.komamitsu.jackson.dataformat.msgpack.MessagePackMapper;
 
 import java.lang.management.ManagementFactory;
@@ -32,14 +33,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Measures heap retained by generator and parser ThreadLocals across N idle threads.
+ * Measures heap retained per idle thread after a generator or parser call, which is
+ * Jackson's own BufferRecycler retention now that the library keeps no ThreadLocal of its own.
  *
  * Usage:
  *   ./gradlew :jmh:threadLocalMemory --args="[numThreads] [payloadKB] [mode]"
  *
  * mode: generator | parser | both (default: both)
- * Append ":noreuse" to mode to disable the generator ThreadLocal and isolate
- * Jackson's own BufferRecycler contribution (e.g. "generator:noreuse").
  * Defaults: 1024 threads, 1024 KB payload.
  */
 public class ThreadLocalMemoryBenchmark
@@ -52,8 +52,6 @@ public class ThreadLocalMemoryBenchmark
 
         System.out.printf("Threads: %d  Payload: %d KB  Mode: %s%n", numThreads, payloadKB, mode);
 
-        boolean reuseGen = !mode.endsWith(":noreuse");
-        if (!reuseGen) { mode = mode.replace(":noreuse", ""); }
 
         ObjectMapper mapper;
         switch (mode) {
@@ -66,9 +64,7 @@ public class ThreadLocalMemoryBenchmark
                         .build());
                 break;
             default:
-                mapper = new MessagePackMapper(
-                        new org.komamitsu.jackson.dataformat.msgpack.MessagePackFactory()
-                                .setReuseResourceInGenerator(reuseGen));
+                mapper = new MessagePackMapper(new MessagePackFactory());
                 break;
         }
         byte[] payload = new byte[payloadKB * 1024];

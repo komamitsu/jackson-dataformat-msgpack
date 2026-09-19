@@ -159,39 +159,34 @@ objectMapper.writeValue(out, 1);
 objectMapper.writeValue(out, "two");
 objectMapper.writeValue(out, 3.14);
 out.close();
-
-MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(new FileInputStream(tempFile));
-System.out.println(unpacker.unpackInt());      // => 1
-System.out.println(unpacker.unpackString());   // => two
-System.out.println(unpacker.unpackFloat());    // => 3.14
 ```
+
+The file now holds three MessagePack values back to back. The next section shows how to read them.
 
 ### Deserialize multiple values without closing an input stream
 
 `tools.jackson.databind.ObjectMapper` closes an input stream by default after it reads a value. If you want to deserialize multiple values in a row without closing an input stream, disable `StreamReadFeature.AUTO_CLOSE_SOURCE`.
 
 ```java
-MessagePacker packer = MessagePack.newDefaultPacker(new FileOutputStream(tempFile));
-packer.packInt(42);
-packer.packString("Hello");
-packer.close();
-
+// tempFile holds the three values written in the previous section
 FileInputStream in = new FileInputStream(tempFile);
 ObjectMapper objectMapper = MessagePackMapper.builder()
         .disable(StreamReadFeature.AUTO_CLOSE_SOURCE)
         .build();
-System.out.println(objectMapper.readValue(in, Integer.class));
-System.out.println(objectMapper.readValue(in, String.class));
+System.out.println(objectMapper.readValue(in, Integer.class));   // => 1
+System.out.println(objectMapper.readValue(in, String.class));    // => two
+System.out.println(objectMapper.readValue(in, Double.class));    // => 3.14
 in.close();
 ```
+
+In this mode the parser reads exactly the bytes of the value it returns, so the stream is left positioned at the next value.
 
 ### Serialize not using str8 type
 
 Old msgpack-java (e.g 0.6.7) doesn't support MessagePack str8 type. When your application needs to communicate with such an old MessagePack library, you can disable the data type like this:
 
 ```java
-MessagePack.PackerConfig config = new MessagePack.PackerConfig().withStr8FormatSupport(false);
-ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory(config));
+ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory().setStr8FormatSupport(false));
 // This string is serialized as bin8 type
 byte[] resultWithoutStr8Format = objectMapper.writeValueAsBytes(str8LengthString);
 ```
@@ -266,18 +261,7 @@ System.out.println(deserialized);   // "2022-09-14T08:47:24.922Z"
 
 ```java
 // In this application, extension type 59 is used for byte[]
-byte[] bytes;
-{
-    // This ObjectMapper is just for temporary serialization
-    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-    MessagePacker packer = MessagePack.newDefaultPacker(outputStream);
-
-    packer.packExtensionTypeHeader((byte) 59, hexspeak.length);
-    packer.addPayload(hexspeak);
-    packer.close();
-
-    bytes = outputStream.toByteArray();
-}
+byte[] bytes = new MessagePackMapper().writeValueAsBytes(new MessagePackExtensionType((byte) 59, hexspeak));
 
 // Register the type and a deserializer to ExtensionTypeCustomDeserializers
 ExtensionTypeCustomDeserializers extTypeCustomDesers = new ExtensionTypeCustomDeserializers();

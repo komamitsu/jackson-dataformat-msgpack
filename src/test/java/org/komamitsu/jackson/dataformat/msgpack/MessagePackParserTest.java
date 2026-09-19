@@ -1116,26 +1116,23 @@ public class MessagePackParserTest
     }
 
     @Test
-    public void testByteArrayThreadLocalClearedAfterClose()
+    public void testByteArrayReparsedFromStart()
             throws IOException
     {
         ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory());
 
         byte[] bytes = objectMapper.writeValueAsBytes(Arrays.asList(1, 2, 3));
 
-        // Parse once; this caches the byte array in the ThreadLocal
         objectMapper.readValue(bytes, new TypeReference<List<Integer>>() {});
 
-        // Parse again with the same byte array instance and AUTO_CLOSE_SOURCE enabled
-        // (default). The byte array reference should have been cleared from the
-        // ThreadLocal on close, so the second parse resets the unpacker and starts
-        // from the beginning rather than continuing from the end.
+        // Parsing the same byte array instance again must start from its beginning,
+        // not continue from where the previous parser stopped.
         List<Integer> result = objectMapper.readValue(bytes, new TypeReference<List<Integer>>() {});
         assertEquals(Arrays.asList(1, 2, 3), result);
     }
 
     @Test
-    public void testByteArrayReuseResetsUnpackerWhenAutoCloseSourceDisabled()
+    public void testByteArrayReparsedFromStartWhenAutoCloseSourceDisabled()
             throws IOException
     {
         ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
@@ -1148,9 +1145,8 @@ public class MessagePackParserTest
         List<Integer> first = objectMapper.readValue(bytes, new TypeReference<List<Integer>>() {});
         assertEquals(Arrays.asList(1, 2, 3), first);
 
-        // Second parse with the same byte[] instance and AUTO_CLOSE_SOURCE disabled.
-        // The byte[] source always triggers an unpacker reset (|| src instanceof byte[]),
-        // so the second parse succeeds and returns the correct result.
+        // Unlike a stream, a byte[] has no position to carry over, so a second parse of
+        // the same instance starts from the beginning even with AUTO_CLOSE_SOURCE off.
         List<Integer> second = objectMapper.readValue(bytes, new TypeReference<List<Integer>>() {});
         assertEquals(Arrays.asList(1, 2, 3), second);
     }
@@ -1170,13 +1166,11 @@ public class MessagePackParserTest
         out.write(objectMapper.writeValueAsBytes(Arrays.asList(4, 5, 6)));
         ByteArrayInputStream stream = new ByteArrayInputStream(out.toByteArray());
 
-        // First parse reads the first value; unpacker may read ahead into the second value
+        // First parse reads the first value and must leave the stream at the second.
         List<Integer> first = objectMapper.readValue(stream, new TypeReference<List<Integer>>() {});
         assertEquals(Arrays.asList(1, 2, 3), first);
 
         // Second parse must read the second value from the same stream.
-        // If the source was incorrectly cleared from the ThreadLocal on close(),
-        // the unpacker's read-ahead buffer is dismissed and the second value is lost.
         List<Integer> second = objectMapper.readValue(stream, new TypeReference<List<Integer>>() {});
         assertEquals(Arrays.asList(4, 5, 6), second);
     }
@@ -1477,12 +1471,8 @@ public class MessagePackParserTest
             }
         };
 
-        // reuseResourceInParser=false keeps ThreadLocal out of the picture so the
-        // test isolates the re-entrancy guard in close() itself.
-        MessagePackFactory nonReuseFactory =
-                new MessagePackFactory().setReuseResourceInParser(false);
         JsonParser parser =
-                nonReuseFactory.createParser(ObjectReadContext.empty(), trackingStream);
+                new MessagePackFactory().createParser(ObjectReadContext.empty(), trackingStream);
         parser.nextToken();
         parser.close();  // first close
         parser.close();  // Bug: calls _closeInput() again — stream closed twice

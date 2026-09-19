@@ -22,12 +22,7 @@ import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.deser.std.StdDeserializer;
 import tools.jackson.databind.module.SimpleModule;
 import tools.jackson.databind.ser.std.StdSerializer;
-import org.msgpack.core.ExtensionTypeHeader;
-import org.msgpack.core.MessagePack;
-import org.msgpack.core.MessagePacker;
-import org.msgpack.core.MessageUnpacker;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
 
@@ -51,25 +46,7 @@ public class TimestampExtensionModule
         @Override
         public void serialize(Instant value, JsonGenerator gen, SerializationContext provider)
         {
-            try {
-                // Per-call allocation is a known limitation carried from the v2 module.
-                // Manually encoding the timestamp bytes would avoid it but duplicates
-                // msgpack-core's timestamp logic. Tracked as a future optimization.
-                ByteArrayOutputStream os = new ByteArrayOutputStream();
-                try (MessagePacker packer = MessagePack.newDefaultPacker(os)) {
-                    packer.packTimestamp(value);
-                }
-                try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(os.toByteArray())) {
-                    ExtensionTypeHeader header = unpacker.unpackExtensionTypeHeader();
-                    byte[] bytes = unpacker.readPayload(header.getLength());
-
-                    MessagePackExtensionType extensionType = new MessagePackExtensionType(EXT_TYPE, bytes);
-                    gen.writePOJO(extensionType);
-                }
-            }
-            catch (IOException e) {
-                throw _wrapIOFailure(provider, e);
-            }
+            gen.writePOJO(new MessagePackExtensionType(EXT_TYPE, MessagePackWriter.timestampPayload(value)));
         }
     }
 
@@ -84,16 +61,15 @@ public class TimestampExtensionModule
         public Instant deserialize(JsonParser p, DeserializationContext ctxt)
         {
             try {
-                // Per-call allocation is a known limitation — see serialize() above.
                 MessagePackExtensionType ext = p.readValueAs(MessagePackExtensionType.class);
                 if (ext.getType() != EXT_TYPE) {
                     ctxt.reportInputMismatch(Instant.class,
                             "Unexpected extension type (0x%X) for Instant object", ext.getType() & 0xFF);
                     return null; // unreachable
                 }
-                try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(ext.getData())) {
-                    return unpacker.unpackTimestamp(new ExtensionTypeHeader(EXT_TYPE, ext.getData().length));
-                }
+                byte[] data = ext.getData();
+                return new MessagePackReader(data, 0, data.length)
+                        .unpackTimestamp(new ExtensionTypeHeader(EXT_TYPE, data.length));
             }
             catch (IOException e) {
                 throw _wrapIOFailure(ctxt, e);

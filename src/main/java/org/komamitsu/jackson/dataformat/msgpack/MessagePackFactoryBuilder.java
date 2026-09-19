@@ -19,14 +19,11 @@ import tools.jackson.core.ErrorReportConfiguration;
 import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.StreamWriteConstraints;
 import tools.jackson.core.base.DecorableTSFactory;
-import org.msgpack.core.MessagePack;
 
 public class MessagePackFactoryBuilder
         extends DecorableTSFactory.DecorableTSFBuilder<MessagePackFactory, MessagePackFactoryBuilder>
 {
-    private MessagePack.PackerConfig packerConfig;
-    private boolean reuseResourceInGenerator;
-    private boolean reuseResourceInParser;
+    private boolean str8FormatSupport;
     private boolean supportIntegerKeys;
     private ExtensionTypeCustomDeserializers extTypeCustomDesers;
 
@@ -34,38 +31,26 @@ public class MessagePackFactoryBuilder
     {
         super(StreamReadConstraints.defaults(), StreamWriteConstraints.defaults(),
                 ErrorReportConfiguration.defaults(), 0, 0);
-        this.packerConfig = MessagePack.DEFAULT_PACKER_CONFIG;
-        this.reuseResourceInGenerator = true;
-        this.reuseResourceInParser = true;
+        this.str8FormatSupport = true;
         this.supportIntegerKeys = false;
     }
 
     public MessagePackFactoryBuilder(MessagePackFactory base)
     {
         super(base);
-        this.packerConfig = base.getPackerConfig().clone();
-        this.reuseResourceInGenerator = base.isReuseResourceInGenerator();
-        this.reuseResourceInParser = base.isReuseResourceInParser();
+        this.str8FormatSupport = base.isStr8FormatSupport();
         this.supportIntegerKeys = base.isSupportIntegerKeys();
         ExtensionTypeCustomDeserializers srcDesers = base.getExtTypeCustomDesers();
         this.extTypeCustomDesers = srcDesers == null ? null : new ExtensionTypeCustomDeserializers(srcDesers);
     }
 
-    public MessagePackFactoryBuilder packerConfig(MessagePack.PackerConfig config)
+    /**
+     * Whether strings of 32 to 255 bytes use the str8 format. Disable for readers that
+     * predate str8 in the MessagePack specification, which then get str16 instead.
+     */
+    public MessagePackFactoryBuilder str8FormatSupport(boolean v)
     {
-        this.packerConfig = config;
-        return this;
-    }
-
-    public MessagePackFactoryBuilder reuseResourceInGenerator(boolean v)
-    {
-        this.reuseResourceInGenerator = v;
-        return this;
-    }
-
-    public MessagePackFactoryBuilder reuseResourceInParser(boolean v)
-    {
-        this.reuseResourceInParser = v;
+        this.str8FormatSupport = v;
         return this;
     }
 
@@ -81,19 +66,9 @@ public class MessagePackFactoryBuilder
         return this;
     }
 
-    public MessagePack.PackerConfig packerConfig()
+    public boolean str8FormatSupport()
     {
-        return packerConfig;
-    }
-
-    public boolean reuseResourceInGenerator()
-    {
-        return reuseResourceInGenerator;
-    }
-
-    public boolean reuseResourceInParser()
-    {
-        return reuseResourceInParser;
+        return str8FormatSupport;
     }
 
     public boolean supportIntegerKeys()

@@ -25,7 +25,6 @@ import tools.jackson.core.TokenStreamFactory;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.msgpack.core.MessagePack;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -78,7 +77,7 @@ public class MessagePackFactoryTest
         assertThat(copiedFactory, is(instanceOf(MessagePackFactory.class)));
         MessagePackFactory copiedMessagePackFactory = (MessagePackFactory) copiedFactory;
 
-        assertThat(copiedMessagePackFactory.getPackerConfig().isStr8FormatSupport(), is(true));
+        assertThat(copiedMessagePackFactory.isStr8FormatSupport(), is(true));
         assertThat(copiedMessagePackFactory.getExtTypeCustomDesers(), is(nullValue()));
 
         // Check the copied factory works fine
@@ -101,7 +100,7 @@ public class MessagePackFactoryTest
 
         MessagePackFactory rebuilt = (MessagePackFactory) builder.build();
         assertThat(rebuilt, is(not(sameInstance(messagePackFactory))));
-        assertThat(rebuilt.getPackerConfig().isStr8FormatSupport(), is(true));
+        assertThat(rebuilt.isStr8FormatSupport(), is(true));
         assertThat(rebuilt.getExtTypeCustomDesers(), is(nullValue()));
 
         ObjectMapper rebuiltObjectMapper = new MessagePackMapper(rebuilt);
@@ -127,13 +126,12 @@ public class MessagePackFactoryTest
                     }
                 }
         );
-        MessagePack.PackerConfig packerConfig = new MessagePack.PackerConfig().withStr8FormatSupport(false);
-        MessagePackFactory messagePackFactory = new MessagePackFactory(packerConfig);
+        MessagePackFactory messagePackFactory = new MessagePackFactory().setStr8FormatSupport(false);
         messagePackFactory.setExtTypeCustomDesers(extTypeCustomDesers);
 
         MessagePackFactory rebuilt = (MessagePackFactory) messagePackFactory.rebuild().build();
         assertThat(rebuilt, is(not(sameInstance(messagePackFactory))));
-        assertThat(rebuilt.getPackerConfig().isStr8FormatSupport(), is(false));
+        assertThat(rebuilt.isStr8FormatSupport(), is(false));
         assertThat(rebuilt.getExtTypeCustomDesers().getDeser((byte) 42), is(notNullValue()));
         assertThat(rebuilt.getExtTypeCustomDesers().getDeser((byte) 43), is(nullValue()));
     }
@@ -166,9 +164,7 @@ public class MessagePackFactoryTest
                 }
         );
 
-        MessagePack.PackerConfig msgpackPackerConfig = new MessagePack.PackerConfig().withStr8FormatSupport(false);
-
-        MessagePackFactory messagePackFactory = new MessagePackFactory(msgpackPackerConfig);
+        MessagePackFactory messagePackFactory = new MessagePackFactory().setStr8FormatSupport(false);
         messagePackFactory.setExtTypeCustomDesers(extTypeCustomDesers);
 
         ObjectMapper objectMapper = new MessagePackMapper(messagePackFactory);
@@ -184,7 +180,7 @@ public class MessagePackFactoryTest
         assertThat(copiedFactory, is(instanceOf(MessagePackFactory.class)));
         MessagePackFactory copiedMessagePackFactory = (MessagePackFactory) copiedFactory;
 
-        assertThat(copiedMessagePackFactory.getPackerConfig().isStr8FormatSupport(), is(false));
+        assertThat(copiedMessagePackFactory.isStr8FormatSupport(), is(false));
         assertThat(copiedMessagePackFactory.getExtTypeCustomDesers().getDeser((byte) 42), is(notNullValue()));
         assertThat(copiedMessagePackFactory.getExtTypeCustomDesers().getDeser((byte) 43), is(nullValue()));
 
