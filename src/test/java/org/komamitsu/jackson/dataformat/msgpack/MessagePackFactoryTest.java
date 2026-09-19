@@ -18,6 +18,8 @@ package org.komamitsu.jackson.dataformat.msgpack;
 import tools.jackson.core.JsonEncoding;
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.core.JsonParser;
+import tools.jackson.core.ObjectReadContext;
+import tools.jackson.core.ObjectWriteContext;
 import tools.jackson.core.TSFBuilder;
 import tools.jackson.core.TokenStreamFactory;
 import tools.jackson.core.type.TypeReference;
@@ -46,7 +48,7 @@ public class MessagePackFactoryTest
             throws IOException
     {
         JsonEncoding enc = JsonEncoding.UTF8;
-        JsonGenerator generator = factory.createGenerator(out, enc);
+        JsonGenerator generator = factory.createGenerator(ObjectWriteContext.empty(), out, enc);
         assertEquals(MessagePackGenerator.class, generator.getClass());
     }
 
@@ -54,7 +56,7 @@ public class MessagePackFactoryTest
     public void testCreateParser()
             throws IOException
     {
-        JsonParser parser = factory.createParser(in);
+        JsonParser parser = factory.createParser(ObjectReadContext.empty(), in);
         assertEquals(MessagePackParser.class, parser.getClass());
     }
 

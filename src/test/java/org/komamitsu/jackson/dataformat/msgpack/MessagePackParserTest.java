@@ -315,7 +315,7 @@ public class MessagePackParserTest
         packer.packFloat(1.0f);
         packer.close();
 
-        JsonParser parser = factory.createParser(tempFile);
+        JsonParser parser = factory.createParser(ObjectReadContext.empty(), tempFile);
         assertTrue(parser instanceof MessagePackParser);
 
         JsonToken jsonToken = parser.nextToken();
@@ -379,7 +379,7 @@ public class MessagePackParserTest
         packer.writePayload(bytes);
         packer.close();
 
-        JsonParser parser = factory.createParser(new FileInputStream(tempFile));
+        JsonParser parser = factory.createParser(ObjectReadContext.empty(), new FileInputStream(tempFile));
         assertEquals(JsonToken.VALUE_STRING, parser.nextToken());
         assertEquals("foo", parser.getString());
 

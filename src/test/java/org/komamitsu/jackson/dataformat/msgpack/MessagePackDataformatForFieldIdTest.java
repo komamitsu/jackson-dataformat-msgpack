@@ -74,6 +74,8 @@ public class MessagePackDataformatForFieldIdTest
             super(src, keyDeser, valueDeser, valueTypeDeser, nuller, ignorable, includable);
         }
 
+        // The superclass constructor takes ValueDeserializer<Object>; Jackson's own withResolved does the same cast.
+        @SuppressWarnings("unchecked")
         @Override
         protected MapDeserializer withResolved(KeyDeserializer keyDeser, TypeDeserializer valueTypeDeser,
                 ValueDeserializer<?> valueDeser, NullValueProvider nuller, Set<String> ignorable,
