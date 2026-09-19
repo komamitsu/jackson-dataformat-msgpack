@@ -293,6 +293,146 @@ public class MessagePackWriterTest
     }
 
     @Test
+    public void containerHeadersPatchedFromAnyReservedLength() throws IOException
+    {
+        int[] counts = {0, 1, 15, 16, 255, 65535, 65536};
+        // Hints reserve 1, 3 or 5 bytes; -1 reserves a 1-byte placeholder.
+        int[] hints = {-1, 0, 15, 16, 65535, 65536};
+        for (boolean map : new boolean[] {false, true}) {
+            for (int count : counts) {
+                int nils = map ? count * 2 : count;
+                byte[] expected = expected(packer -> {
+                    if (map) {
+                        packer.packMapHeader(count);
+                    }
+                    else {
+                        packer.packArrayHeader(count);
+                    }
+                    for (int i = 0; i < nils; i++) {
+                        packer.packNil();
+                    }
+                }, true);
+                for (int hint : hints) {
+                    byte[] got = actual(writer -> {
+                        int offset = writer.openContainer(map, hint);
+                        int reserved = writer.position() - offset;
+                        for (int i = 0; i < nils; i++) {
+                            writer.packNil();
+                        }
+                        writer.closeContainer(map, offset, reserved, count);
+                    }, true);
+                    assertArrayEquals(expected, got, "map=" + map + " count=" + count + " hint=" + hint);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void nestedContainersPatchedInnermostFirst() throws IOException
+    {
+        // [ {1: [0..19], 2: nil}, [ "x" * 20 ], 7 ]
+        assertSameBytes(p -> {
+            p.packArrayHeader(3);
+            p.packMapHeader(2);
+            p.packInt(1);
+            p.packArrayHeader(20);
+            for (int i = 0; i < 20; i++) {
+                p.packInt(i);
+            }
+            p.packInt(2);
+            p.packNil();
+            p.packArrayHeader(20);
+            for (int i = 0; i < 20; i++) {
+                p.packString("x");
+            }
+            p.packInt(7);
+        }, w -> {
+            int root = w.openContainer(false, -1);
+            int rootReserved = w.position() - root;
+            int m = w.openContainer(true, -1);
+            int mReserved = w.position() - m;
+            w.packInt(1);
+            int inner = w.openContainer(false, -1);
+            int innerReserved = w.position() - inner;
+            for (int i = 0; i < 20; i++) {
+                w.packInt(i);
+            }
+            w.closeContainer(false, inner, innerReserved, 20);
+            w.packInt(2);
+            w.packNil();
+            w.closeContainer(true, m, mReserved, 2);
+            int second = w.openContainer(false, 20);
+            int secondReserved = w.position() - second;
+            for (int i = 0; i < 20; i++) {
+                w.packString("x");
+            }
+            w.closeContainer(false, second, secondReserved, 20);
+            w.packInt(7);
+            w.closeContainer(false, root, rootReserved, 3);
+        });
+    }
+
+    @Test
+    public void holdModeGrowsInsteadOfFlushingAndReleasesBorrowedBufferOnce() throws IOException
+    {
+        IOContext ioContext = newIOContext();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        MessagePackWriter writer = new MessagePackWriter(ioContext, out, true);
+        String chunk = "y".repeat(4000);
+
+        int offset = writer.openContainer(false, -1);
+        int reserved = writer.position() - offset;
+        for (int i = 0; i < 5; i++) {
+            writer.packString(chunk);
+        }
+        assertEquals(0, out.size(), "nothing reaches the stream while a container is open");
+        writer.closeContainer(false, offset, reserved, 5);
+        assertEquals(1 + 5 * (3 + 4000), writer.pending());
+        writer.flush();
+        assertEquals(writer.pending(), 0);
+
+        assertArrayEquals(expected(p -> {
+            p.packArrayHeader(5);
+            for (int i = 0; i < 5; i++) {
+                p.packString(chunk);
+            }
+        }, true), out.toByteArray());
+
+        // The IOContext buffer was handed back when the writer grew past it, so it can be lent
+        // out again. A second release must be a no-op rather than a double release.
+        writer.release();
+        writer.release();
+        ioContext.allocWriteEncodingBuffer();
+    }
+
+    @Test
+    public void flushWhileHoldingThrows() throws IOException
+    {
+        MessagePackWriter writer = new MessagePackWriter(newIOContext(), new ByteArrayOutputStream(), true);
+        writer.openContainer(false, -1);
+        assertThrows(IllegalStateException.class, writer::flush);
+        writer.discard();
+        writer.flush();
+        writer.release();
+    }
+
+    @Test
+    public void discardDropsPendingBytes() throws IOException
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        MessagePackWriter writer = new MessagePackWriter(newIOContext(), out, true);
+        writer.openContainer(true, -1);
+        writer.packString("half written");
+        assertEquals(1 + 1 + 12, writer.pending());
+        writer.discard();
+        assertEquals(0, writer.pending());
+        writer.packInt(1);
+        writer.flush();
+        assertArrayEquals(new byte[] {1}, out.toByteArray());
+        writer.release();
+    }
+
+    @Test
     public void flushWritesBufferedBytesAndClosePropagates() throws IOException
     {
         int[] closed = {0};

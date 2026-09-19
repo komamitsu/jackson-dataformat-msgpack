@@ -28,6 +28,11 @@ import java.time.Instant;
  * Encodes MessagePack values into a buffer borrowed from Jackson's {@link IOContext} and
  * flushes it to an {@link OutputStream}. Format selection matches msgpack-core's
  * {@code MessagePacker} byte for byte.
+ *
+ * <p>Container headers carry the element count, which is unknown until the container
+ * closes. {@link #openContainer} reserves room for the header and puts the writer in hold
+ * mode, where the buffer grows instead of flushing so the header can still be patched by
+ * {@link #closeContainer}. Outside hold mode the buffer flushes to the stream as it fills.
  */
 final class MessagePackWriter
 {
@@ -35,12 +40,17 @@ final class MessagePackWriter
     // Largest fixed-size write: EXT8 header (3) plus a timestamp96 payload (12).
     private static final int MAX_FIXED_WRITE = 15;
     private static final int STANDALONE_BUFFER_SIZE = 2000;
+    private static final int MAX_CONTAINER_HEADER = 5;
 
     private final IOContext ioContext;
     private final OutputStream out;
     private final boolean str8FormatSupport;
     private byte[] buf;
     private int pos;
+    // Whether buf is the IOContext's, to be returned exactly once.
+    private boolean borrowed;
+    // Number of open containers. While positive the buffer must not flush.
+    private int holdDepth;
 
     MessagePackWriter(IOContext ioContext, OutputStream out, boolean str8FormatSupport)
     {
@@ -48,6 +58,7 @@ final class MessagePackWriter
         this.out = out;
         this.str8FormatSupport = str8FormatSupport;
         this.buf = ioContext.allocWriteEncodingBuffer();
+        this.borrowed = true;
     }
 
     // For nested generators, whose IOContext already has its write buffer checked out by the
@@ -148,6 +159,10 @@ final class MessagePackWriter
         if (byteLen <= buf.length - pos) {
             pos = encodeUtf8(s, buf, pos);
         }
+        else if (holdDepth > 0) {
+            grow(pos + byteLen);
+            pos = encodeUtf8(s, buf, pos);
+        }
         else if (byteLen <= buf.length) {
             flushBuffer();
             pos = encodeUtf8(s, buf, 0);
@@ -188,28 +203,105 @@ final class MessagePackWriter
 
     void packArrayHeader(int size) throws IOException
     {
-        if (size < (1 << 4)) {
-            writeByte((byte) (Code.FIXARRAY_PREFIX | size));
-        }
-        else if (size < (1 << 16)) {
-            writeByteAndShort(Code.ARRAY16, (short) size);
-        }
-        else {
-            writeByteAndInt(Code.ARRAY32, size);
-        }
+        ensure(MAX_CONTAINER_HEADER);
+        pos += putContainerHeader(buf, pos, false, size);
     }
 
     void packMapHeader(int size) throws IOException
     {
-        if (size < (1 << 4)) {
-            writeByte((byte) (Code.FIXMAP_PREFIX | size));
-        }
-        else if (size < (1 << 16)) {
-            writeByteAndShort(Code.MAP16, (short) size);
+        ensure(MAX_CONTAINER_HEADER);
+        pos += putContainerHeader(buf, pos, true, size);
+    }
+
+    /**
+     * Starts a container whose element count may not be known yet. Returns the offset of its
+     * header; the caller must keep it, along with {@link #position()} minus it as the reserved
+     * header length, and pass both to {@link #closeContainer}. With a non-negative size hint the
+     * final header is written now, and closing only patches it if the hint turns out wrong.
+     */
+    int openContainer(boolean map, int sizeHint) throws IOException
+    {
+        ensure(MAX_CONTAINER_HEADER);
+        int offset = pos;
+        holdDepth++;
+        if (sizeHint < 0) {
+            pos++;
         }
         else {
-            writeByteAndInt(Code.MAP32, size);
+            pos += putContainerHeader(buf, pos, map, sizeHint);
         }
+        return offset;
+    }
+
+    /**
+     * Writes the final header for a container opened with {@link #openContainer}, moving the
+     * children if the header needs a different length than was reserved.
+     */
+    void closeContainer(boolean map, int offset, int reserved, int count) throws IOException
+    {
+        int needed = containerHeaderLength(count);
+        int shift = needed - reserved;
+        if (shift != 0) {
+            int childStart = offset + reserved;
+            int childLength = pos - childStart;
+            if (shift > 0) {
+                ensure(shift);
+            }
+            System.arraycopy(buf, childStart, buf, childStart + shift, childLength);
+            pos += shift;
+        }
+        putContainerHeader(buf, offset, map, count);
+        holdDepth--;
+    }
+
+    int position()
+    {
+        return pos;
+    }
+
+    /**
+     * Bytes encoded but not yet written to the stream.
+     */
+    int pending()
+    {
+        return pos;
+    }
+
+    /**
+     * Drops everything not yet written to the stream and leaves hold mode.
+     */
+    void discard()
+    {
+        pos = 0;
+        holdDepth = 0;
+    }
+
+    private static int containerHeaderLength(int count)
+    {
+        if (count < (1 << 4)) {
+            return 1;
+        }
+        if (count < (1 << 16)) {
+            return 3;
+        }
+        return 5;
+    }
+
+    private static int putContainerHeader(byte[] b, int off, boolean map, int count)
+    {
+        if (count < (1 << 4)) {
+            b[off] = (byte) ((map ? Code.FIXMAP_PREFIX : Code.FIXARRAY_PREFIX) | count);
+            return 1;
+        }
+        if (count < (1 << 16)) {
+            b[off] = map ? Code.MAP16 : Code.ARRAY16;
+            b[off + 1] = (byte) (count >>> 8);
+            b[off + 2] = (byte) count;
+            return 3;
+        }
+        b[off] = map ? Code.MAP32 : Code.ARRAY32;
+        putInt(b, off + 1, count);
+        return 5;
     }
 
     void packExtensionTypeHeader(byte extType, int payloadLen) throws IOException
@@ -318,6 +410,12 @@ final class MessagePackWriter
             pos += len;
             return;
         }
+        if (holdDepth > 0) {
+            grow(pos + len);
+            System.arraycopy(src, off, buf, pos, len);
+            pos += len;
+            return;
+        }
         flushBuffer();
         if (len <= buf.length) {
             System.arraycopy(src, off, buf, 0, len);
@@ -335,6 +433,9 @@ final class MessagePackWriter
 
     void flush() throws IOException
     {
+        if (holdDepth > 0) {
+            throw new IllegalStateException("Cannot flush while " + holdDepth + " container(s) are open");
+        }
         flushBuffer();
         out.flush();
     }
@@ -348,8 +449,9 @@ final class MessagePackWriter
     void release()
     {
         byte[] b = buf;
-        if (b != null && ioContext != null) {
-            buf = null;
+        buf = null;
+        if (b != null && borrowed) {
+            borrowed = false;
             ioContext.releaseWriteEncodingBuffer(b);
         }
     }
@@ -364,8 +466,27 @@ final class MessagePackWriter
 
     private void ensure(int n) throws IOException
     {
-        if (buf.length - pos < n) {
+        if (buf.length - pos >= n) {
+            return;
+        }
+        if (holdDepth == 0) {
             flushBuffer();
+            if (buf.length >= n) {
+                return;
+            }
+        }
+        grow(pos + n);
+    }
+
+    private void grow(int minCapacity)
+    {
+        byte[] old = buf;
+        byte[] bigger = new byte[Math.max(old.length * 2, minCapacity)];
+        System.arraycopy(old, 0, bigger, 0, pos);
+        buf = bigger;
+        if (borrowed) {
+            borrowed = false;
+            ioContext.releaseWriteEncodingBuffer(old);
         }
     }
 
