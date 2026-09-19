@@ -27,25 +27,18 @@ import tools.jackson.core.base.ParserMinimalBase;
 import tools.jackson.core.exc.UnexpectedEndOfInputException;
 import tools.jackson.core.io.IOContext;
 import tools.jackson.core.json.DupDetector;
-import org.msgpack.core.ExtensionTypeHeader;
-import org.msgpack.core.MessageFormat;
-import org.msgpack.core.MessagePack;
-import org.msgpack.core.MessageUnpacker;
-import org.msgpack.core.buffer.MessageBufferInput;
-import org.msgpack.value.ValueType;
+import org.komamitsu.jackson.dataformat.msgpack.MessageFormat.ValueType;
 
+import java.io.EOFException;
 import java.io.IOException;
-
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 
 public class MessagePackParser
         extends ParserMinimalBase
 {
-    // Retained heap per idle thread: ~0.2 KB (MessageUnpacker with cleared input buffer).
-    // Negligible compared to Jackson's own per-thread buffer retention.
-    private static final ThreadLocal<Tuple<Object, MessageUnpacker>> messageUnpackerHolder = new ThreadLocal<>();
-    private final MessageUnpacker messageUnpacker;
+    private final MessagePackReader reader;
 
     private static final BigInteger LONG_MIN = BigInteger.valueOf(Long.MIN_VALUE);
     private static final BigInteger LONG_MAX = BigInteger.valueOf(Long.MAX_VALUE);
@@ -57,7 +50,6 @@ public class MessagePackParser
     private long currentPosition;
     private final IOContext ioContext;
     private ExtensionTypeCustomDeserializers extTypeCustomDesers;
-    private final boolean ownsThreadLocalUnpacker;
 
     private enum Type
     {
@@ -76,10 +68,7 @@ public class MessagePackParser
     MessagePackParser(ObjectReadContext readCtxt,
             IOContext ioCtxt,
             int streamReadFeatures,
-            MessageBufferInput input,
-            Object src,
-            boolean reuseResourceInParser)
-            throws IOException
+            MessagePackReader reader)
     {
         super(readCtxt, ioCtxt, streamReadFeatures);
 
@@ -87,32 +76,7 @@ public class MessagePackParser
         DupDetector dups = StreamReadFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamReadFeatures)
                 ? DupDetector.rootDetector(this) : null;
         streamReadContext = MessagePackReadContext.createRootContext(dups);
-        if (!reuseResourceInParser) {
-            messageUnpacker = MessagePack.newDefaultUnpacker(input);
-            ownsThreadLocalUnpacker = false;
-            return;
-        }
-
-        Tuple<Object, MessageUnpacker> messageUnpackerTuple = messageUnpackerHolder.get();
-        if (messageUnpackerTuple == null) {
-            messageUnpacker = MessagePack.newDefaultUnpacker(input);
-        }
-        else {
-            // Considering to reuse InputStream with StreamReadFeature.AUTO_CLOSE_SOURCE,
-            // MessagePackParser needs to use the MessageUnpacker that has the same InputStream
-            // since it has buffer which has loaded the InputStream data ahead.
-            // However, it needs to call MessageUnpacker#reset when the source is different from the previous one.
-            Object cachedSrc = messageUnpackerTuple.first();
-            if (StreamReadFeature.AUTO_CLOSE_SOURCE.enabledIn(streamReadFeatures) || cachedSrc != src || src instanceof byte[]) {
-                // reset() replaces the internal MessageBufferInput and clears the unpacker's
-                // internal read buffer to EMPTY_BUFFER. The old ArrayBufferInput becomes
-                // unreachable here (we discard the return value), so its byte[] is GC-eligible.
-                messageUnpackerTuple.second().reset(input);
-            }
-            messageUnpacker = messageUnpackerTuple.second();
-        }
-        messageUnpackerHolder.set(new Tuple<>(src, messageUnpacker));
-        ownsThreadLocalUnpacker = true;
+        this.reader = reader;
     }
 
     public void setExtensionTypeCustomDeserializers(ExtensionTypeCustomDeserializers extTypeCustomDesers)
@@ -126,16 +90,14 @@ public class MessagePackParser
         return PackageVersion.VERSION;
     }
 
-    private String unpackString(MessageUnpacker messageUnpacker) throws IOException
-    {
-        return messageUnpacker.unpackString();
-    }
-
     @Override
     public JsonToken nextToken() throws JacksonException
     {
         try {
             return _nextToken();
+        }
+        catch (EOFException e) {
+            throw new UnexpectedEndOfInputException(this, _currToken, e.getMessage());
         }
         catch (IOException e) {
             throw _wrapIOFailure(e);
@@ -145,7 +107,7 @@ public class MessagePackParser
     private JsonToken _nextToken() throws IOException
     {
         type = null;
-        tokenPosition = messageUnpacker.getTotalReadBytes();
+        tokenPosition = reader.getTotalReadBytes();
 
         boolean isObjectValueSet = streamReadContext.inObject() && _currToken != JsonToken.PROPERTY_NAME;
         if (isObjectValueSet) {
@@ -161,21 +123,21 @@ public class MessagePackParser
             }
         }
 
-        if (!messageUnpacker.hasNext()) {
+        if (!reader.hasNext()) {
             if (streamReadContext.inRoot()) {
                 return null;
             }
             throw new UnexpectedEndOfInputException(this, null, null);
         }
 
-        MessageFormat format = messageUnpacker.getNextFormat();
+        MessageFormat format = reader.getNextFormat();
         ValueType valueType = format.getValueType();
 
         JsonToken nextToken;
         switch (valueType) {
             case STRING:
                 type = Type.STRING;
-                stringValue = unpackString(messageUnpacker);
+                stringValue = reader.unpackString();
                 _streamReadConstraints.validateStringLength(stringValue.length());
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(stringValue);
@@ -189,7 +151,7 @@ public class MessagePackParser
                 Object v;
                 switch (format) {
                     case UINT64:
-                        BigInteger bi = messageUnpacker.unpackBigInteger();
+                        BigInteger bi = reader.unpackBigInteger();
                         if (0 <= bi.compareTo(LONG_MIN) && bi.compareTo(LONG_MAX) <= 0) {
                             type = Type.LONG;
                             longValue = bi.longValue();
@@ -202,7 +164,7 @@ public class MessagePackParser
                         }
                         break;
                     default:
-                        long l = messageUnpacker.unpackLong();
+                        long l = reader.unpackLong();
                         if (Integer.MIN_VALUE <= l && l <= Integer.MAX_VALUE) {
                             type = Type.INT;
                             intValue = (int) l;
@@ -226,7 +188,7 @@ public class MessagePackParser
                 break;
             case NIL:
                 type = Type.NULL;
-                messageUnpacker.unpackNil();
+                reader.unpackNil();
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(null);
                     nextToken = JsonToken.PROPERTY_NAME;
@@ -236,7 +198,7 @@ public class MessagePackParser
                 }
                 break;
             case BOOLEAN:
-                boolean b = messageUnpacker.unpackBoolean();
+                boolean b = reader.unpackBoolean();
                 type = Type.BOOL;
                 booleanValue = b;
                 if (isObjectValueSet) {
@@ -249,7 +211,7 @@ public class MessagePackParser
                 break;
             case FLOAT:
                 type = Type.DOUBLE;
-                doubleValue = messageUnpacker.unpackDouble();
+                doubleValue = reader.unpackDouble();
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(String.valueOf(doubleValue));
                     nextToken = JsonToken.PROPERTY_NAME;
@@ -260,11 +222,11 @@ public class MessagePackParser
                 break;
             case BINARY:
                 type = Type.BYTES;
-                int len = messageUnpacker.unpackBinaryHeader();
+                int len = reader.unpackBinaryHeader();
                 _streamReadConstraints.validateStringLength(len);
-                bytesValue = messageUnpacker.readPayload(len);
+                bytesValue = reader.readPayload(len);
                 if (isObjectValueSet) {
-                    streamReadContext.setCurrentName(new String(bytesValue, MessagePack.UTF8));
+                    streamReadContext.setCurrentName(new String(bytesValue, StandardCharsets.UTF_8));
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
@@ -273,19 +235,19 @@ public class MessagePackParser
                 break;
             case ARRAY:
                 nextToken = JsonToken.START_ARRAY;
-                streamReadContext = streamReadContext.createChildArrayContext(messageUnpacker.unpackArrayHeader());
+                streamReadContext = streamReadContext.createChildArrayContext(reader.unpackArrayHeader());
                 _streamReadConstraints.validateNestingDepth(streamReadContext.getNestingDepth());
                 break;
             case MAP:
                 nextToken = JsonToken.START_OBJECT;
-                streamReadContext = streamReadContext.createChildObjectContext(messageUnpacker.unpackMapHeader());
+                streamReadContext = streamReadContext.createChildObjectContext(reader.unpackMapHeader());
                 _streamReadConstraints.validateNestingDepth(streamReadContext.getNestingDepth());
                 break;
             case EXTENSION:
                 type = Type.EXT;
-                ExtensionTypeHeader header = messageUnpacker.unpackExtensionTypeHeader();
+                ExtensionTypeHeader header = reader.unpackExtensionTypeHeader();
                 _streamReadConstraints.validateStringLength(header.getLength());
-                extensionTypeValue = new MessagePackExtensionType(header.getType(), messageUnpacker.readPayload(header.getLength()));
+                extensionTypeValue = new MessagePackExtensionType(header.getType(), reader.readPayload(header.getLength()));
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(deserializedExtensionTypeValue().toString());
                     nextToken = JsonToken.PROPERTY_NAME;
@@ -297,7 +259,7 @@ public class MessagePackParser
             default:
                 nextToken = _reportError("Unexpected MessagePack format type: " + valueType);
         }
-        currentPosition = messageUnpacker.getTotalReadBytes();
+        currentPosition = reader.getTotalReadBytes();
 
         _updateToken(nextToken);
 
@@ -319,7 +281,7 @@ public class MessagePackParser
             case STRING:
                 return stringValue;
             case BYTES:
-                return new String(bytesValue, MessagePack.UTF8);
+                return new String(bytesValue, StandardCharsets.UTF_8);
             case INT:
                 return String.valueOf(intValue);
             case LONG:
@@ -378,7 +340,7 @@ public class MessagePackParser
             case BYTES:
                 return bytesValue;
             case STRING:
-                return stringValue.getBytes(MessagePack.UTF8);
+                return stringValue.getBytes(StandardCharsets.UTF_8);
             case EXT:
                 return extensionTypeValue.getData();
             case INT:
@@ -682,33 +644,14 @@ public class MessagePackParser
     protected void _closeInput() throws IOException
     {
         if (StreamReadFeature.AUTO_CLOSE_SOURCE.enabledIn(_streamReadFeatures)) {
-            messageUnpacker.close();
-        }
-        if (ownsThreadLocalUnpacker) {
-            Tuple<Object, MessageUnpacker> tuple = messageUnpackerHolder.get();
-            if (tuple != null) {
-                if (tuple.first() instanceof byte[]) {
-                    // close() calls ArrayBufferInput.close() which sets buffer = null,
-                    // releasing the byte[] payload reference held by the unpacker's input.
-                    // The unpacker itself is kept alive for reuse on the next parse.
-                    tuple.second().close();
-                    messageUnpackerHolder.set(new Tuple<>(null, tuple.second()));
-                }
-                else if (StreamReadFeature.AUTO_CLOSE_SOURCE.enabledIn(_streamReadFeatures)) {
-                    // Stream is already closed above; release the reference so it doesn't
-                    // linger on the thread until the next parse.
-                    messageUnpackerHolder.set(new Tuple<>(null, tuple.second()));
-                }
-                // else: InputStream with AUTO_CLOSE_SOURCE disabled — keep the reference
-                // so the next parse on the same thread can detect same-stream reuse and
-                // avoid resetting the unpacker (which would discard its read-ahead buffer).
-            }
+            reader.close();
         }
     }
 
     @Override
     protected void _releaseBuffers()
     {
+        reader.release();
     }
 
     @Override
@@ -733,6 +676,8 @@ public class MessagePackParser
         }
         finally {
             isClosed = true;
+            _releaseBuffers();
+            ioContext.close();
         }
     }
 

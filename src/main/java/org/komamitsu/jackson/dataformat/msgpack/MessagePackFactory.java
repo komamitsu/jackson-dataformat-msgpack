@@ -24,6 +24,7 @@ import tools.jackson.core.JsonParser;
 import tools.jackson.core.ObjectReadContext;
 import tools.jackson.core.ObjectWriteContext;
 import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
 import tools.jackson.core.StreamWriteConstraints;
 import tools.jackson.core.TSFBuilder;
 import tools.jackson.core.TokenStreamFactory;
@@ -33,12 +34,7 @@ import tools.jackson.core.io.IOContext;
 import org.msgpack.core.MessagePack;
 import org.msgpack.core.annotations.VisibleForTesting;
 
-import org.msgpack.core.buffer.ArrayBufferInput;
-import org.msgpack.core.buffer.InputStreamBufferInput;
-import org.msgpack.core.buffer.MessageBufferInput;
-
 import java.io.DataInput;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
@@ -116,36 +112,28 @@ public class MessagePackFactory
     protected JsonParser _createParser(ObjectReadContext readCtxt, IOContext ioCtxt,
             InputStream in) throws JacksonException
     {
-        try {
-            MessagePackParser parser = new MessagePackParser(readCtxt, ioCtxt,
-                    readCtxt.getStreamReadFeatures(_streamReadFeatures),
-                    new InputStreamBufferInput(in), in, reuseResourceInParser);
-            if (extTypeCustomDesers != null) {
-                parser.setExtensionTypeCustomDeserializers(extTypeCustomDesers);
-            }
-            return parser;
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        // With AUTO_CLOSE_SOURCE disabled the caller may read further values from the same
+        // stream afterwards, so the reader must not consume bytes beyond the current value.
+        boolean readAhead = StreamReadFeature.AUTO_CLOSE_SOURCE.enabledIn(
+                readCtxt.getStreamReadFeatures(_streamReadFeatures));
+        return newParser(readCtxt, ioCtxt, new MessagePackReader(ioCtxt, in, readAhead));
     }
 
     @Override
     protected JsonParser _createParser(ObjectReadContext readCtxt, IOContext ioCtxt,
             byte[] data, int offset, int len) throws JacksonException
     {
-        try {
-            MessageBufferInput input = new ArrayBufferInput(data, offset, len);
-            MessagePackParser parser = new MessagePackParser(readCtxt, ioCtxt,
-                    readCtxt.getStreamReadFeatures(_streamReadFeatures), input, data, reuseResourceInParser);
-            if (extTypeCustomDesers != null) {
-                parser.setExtensionTypeCustomDeserializers(extTypeCustomDesers);
-            }
-            return parser;
+        return newParser(readCtxt, ioCtxt, new MessagePackReader(data, offset, len));
+    }
+
+    private MessagePackParser newParser(ObjectReadContext readCtxt, IOContext ioCtxt, MessagePackReader reader)
+    {
+        MessagePackParser parser = new MessagePackParser(readCtxt, ioCtxt,
+                readCtxt.getStreamReadFeatures(_streamReadFeatures), reader);
+        if (extTypeCustomDesers != null) {
+            parser.setExtensionTypeCustomDeserializers(extTypeCustomDesers);
         }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        return parser;
     }
 
     @Override

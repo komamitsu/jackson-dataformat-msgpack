@@ -87,9 +87,9 @@ public class MessagePackReaderTest
                     return new MessagePackReader(padded, 3, data.length);
                 },
                 (Function<byte[], MessagePackReader>) data ->
-                        new MessagePackReader(MessagePackWriterTest.newIOContext(), new ByteArrayInputStream(data)),
+                        new MessagePackReader(MessagePackWriterTest.newIOContext(), new ByteArrayInputStream(data), true),
                 (Function<byte[], MessagePackReader>) data ->
-                        new MessagePackReader(MessagePackWriterTest.newIOContext(), trickle(data)),
+                        new MessagePackReader(MessagePackWriterTest.newIOContext(), trickle(data), false),
         };
     }
 
@@ -398,6 +398,41 @@ public class MessagePackReaderTest
     }
 
     @Test
+    public void withoutReadAheadTheStreamStopsAtTheEndOfEachValue() throws IOException
+    {
+        byte[] data = pack(p -> p.packString("first value").packInt(300).packArrayHeader(1).packNil());
+        ByteArrayInputStream stream = new ByteArrayInputStream(data);
+
+        MessagePackReader r1 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
+        assertEquals("first value", r1.unpackString());
+        r1.release();
+        assertEquals(data.length - 12, stream.available(), "exactly the string was consumed");
+
+        MessagePackReader r2 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
+        assertEquals(300, r2.unpackLong());
+        r2.release();
+        assertEquals(2, stream.available());
+
+        MessagePackReader r3 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
+        assertEquals(1, r3.unpackArrayHeader());
+        r3.unpackNil();
+        assertFalse(r3.hasNext());
+        r3.release();
+    }
+
+    @Test
+    public void withReadAheadTheStreamIsBuffered() throws IOException
+    {
+        byte[] data = pack(p -> p.packString("first value").packInt(300));
+        ByteArrayInputStream stream = new ByteArrayInputStream(data);
+        MessagePackReader reader = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, true);
+        assertEquals("first value", reader.unpackString());
+        assertEquals(0, stream.available(), "read ahead drains a small stream in one read");
+        assertEquals(300, reader.unpackLong());
+        reader.release();
+    }
+
+    @Test
     public void emptyInputHasNoNext() throws IOException
     {
         forEachSource(new byte[0], r -> assertFalse(r.hasNext()));
@@ -415,7 +450,7 @@ public class MessagePackReaderTest
                 super.close();
             }
         };
-        MessagePackReader streamReader = new MessagePackReader(MessagePackWriterTest.newIOContext(), in);
+        MessagePackReader streamReader = new MessagePackReader(MessagePackWriterTest.newIOContext(), in, true);
         streamReader.unpackNil();
         streamReader.close();
         assertEquals(1, closed[0]);

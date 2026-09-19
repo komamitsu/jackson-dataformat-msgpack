@@ -34,6 +34,7 @@ final class MessagePackReader
 {
     private final IOContext ioContext;
     private final InputStream in;
+    private final boolean readAhead;
     private final boolean recyclable;
     private byte[] buf;
     private int pos;
@@ -42,10 +43,16 @@ final class MessagePackReader
     // total consumed. Starts negative for array sources that begin at an offset.
     private long consumed;
 
-    MessagePackReader(IOContext ioContext, InputStream in)
+    /**
+     * @param readAhead whether the stream may be read past the current value. Pass false
+     *                  when the caller keeps using the stream after this reader is done,
+     *                  so that it is left positioned at the next value.
+     */
+    MessagePackReader(IOContext ioContext, InputStream in, boolean readAhead)
     {
         this.ioContext = ioContext;
         this.in = in;
+        this.readAhead = readAhead;
         this.recyclable = true;
         this.buf = ioContext.allocReadIOBuffer();
     }
@@ -54,6 +61,7 @@ final class MessagePackReader
     {
         this.ioContext = null;
         this.in = null;
+        this.readAhead = false;
         this.recyclable = false;
         this.buf = data;
         this.pos = offset;
@@ -419,7 +427,7 @@ final class MessagePackReader
             end = available;
         }
         while (end < n) {
-            int r = in.read(buf, end, buf.length - end);
+            int r = in.read(buf, end, readAhead ? buf.length - end : n - end);
             if (r < 0) {
                 return false;
             }
