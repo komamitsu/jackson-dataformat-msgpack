@@ -42,3 +42,21 @@ ByteArrayOutputStream and then copied in. The nested generator now writes into t
 parent's writer directly, so its containers are patched in place. No benchmark uses
 complex keys; the run is a control and is unchanged within error (the JSON control
 moved by the same 2%).
+
+## Step 4: cleanup and final checks
+
+Nothing from the node design was left to remove after step 3. Retained heap per idle
+thread at 1024 threads and 1 MB payload is 137.55 KB, unchanged from Stage B: that figure
+is Jackson's BufferRecycler pooling, as explained in the Stage B results file. The
+published POM still lists only jackson-databind, and the consumer smoke project runs.
+
+## Summary against Stage B
+
+| Benchmark | Stage B | Stage C (step 3) | Change |
+|---|---|---|---|
+| writePojoMsgpack | 682674 | 969425 | **+42%** |
+| writeUTF8StringAscii | 102142 | 113569 | +11% |
+| writeUTF8StringNonAscii | 100689 | 111097 | +10% |
+| readPojoMsgpack | 635450 | 643288 | unchanged |
+
+MessagePack write is now within about 9% of Jackson's JSON writer on the same POJO.
