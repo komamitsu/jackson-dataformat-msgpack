@@ -24,3 +24,12 @@ jmh {
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
     )
 }
+
+// Not a JMH benchmark: a standalone main() that measures heap retained per idle thread.
+tasks.register<JavaExec>("threadLocalMemory") {
+    group = "benchmark"
+    description = "Measures heap retained by generator and parser ThreadLocals across idle threads."
+    classpath = sourceSets["jmh"].runtimeClasspath
+    mainClass = "org.komamitsu.jackson.dataformat.msgpack.benchmark.ThreadLocalMemoryBenchmark"
+    javaLauncher = javaToolchains.launcherFor(java.toolchain)
+}
