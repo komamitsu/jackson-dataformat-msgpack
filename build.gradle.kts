@@ -20,7 +20,7 @@ repositories {
 
 dependencies {
     api(libs.jackson.databind)
-    api(libs.msgpack.core)
+    testImplementation(libs.msgpack.core)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.hamcrest)
