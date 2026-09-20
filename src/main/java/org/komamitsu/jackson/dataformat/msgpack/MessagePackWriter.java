@@ -37,8 +37,6 @@ import java.time.Instant;
 final class MessagePackWriter
 {
     private static final int NANOS_PER_SECOND = 1_000_000_000;
-    // Largest fixed-size write: EXT8 header (3) plus a timestamp96 payload (12).
-    private static final int MAX_FIXED_WRITE = 15;
     private static final int MAX_CONTAINER_HEADER = 5;
 
     private final IOContext ioContext;
@@ -336,29 +334,9 @@ final class MessagePackWriter
 
     void packTimestamp(long epochSecond, int nanoAdjustment) throws IOException
     {
-        long sec = Math.addExact(epochSecond, Math.floorDiv(nanoAdjustment, NANOS_PER_SECOND));
-        long nsec = Math.floorMod((long) nanoAdjustment, NANOS_PER_SECOND);
-        ensure(MAX_FIXED_WRITE);
-        if (sec >>> 34 == 0) {
-            long data64 = (nsec << 34) | sec;
-            if ((data64 & 0xffffffff00000000L) == 0L) {
-                buf[pos++] = Code.FIXEXT4;
-                buf[pos++] = Code.EXT_TIMESTAMP;
-                putInt((int) sec);
-            }
-            else {
-                buf[pos++] = Code.FIXEXT8;
-                buf[pos++] = Code.EXT_TIMESTAMP;
-                putLong(data64);
-            }
-        }
-        else {
-            buf[pos++] = Code.EXT8;
-            buf[pos++] = (byte) 12;
-            buf[pos++] = Code.EXT_TIMESTAMP;
-            putInt((int) nsec);
-            putLong(sec);
-        }
+        byte[] payload = timestampPayload(epochSecond, nanoAdjustment);
+        packExtensionTypeHeader(Code.EXT_TIMESTAMP, payload.length);
+        writePayload(payload);
     }
 
     /**
@@ -366,8 +344,13 @@ final class MessagePackWriter
      */
     static byte[] timestampPayload(Instant instant)
     {
-        long sec = Math.addExact(instant.getEpochSecond(), Math.floorDiv(instant.getNano(), NANOS_PER_SECOND));
-        long nsec = Math.floorMod((long) instant.getNano(), NANOS_PER_SECOND);
+        return timestampPayload(instant.getEpochSecond(), instant.getNano());
+    }
+
+    private static byte[] timestampPayload(long epochSecond, int nanoAdjustment)
+    {
+        long sec = Math.addExact(epochSecond, Math.floorDiv(nanoAdjustment, NANOS_PER_SECOND));
+        long nsec = Math.floorMod((long) nanoAdjustment, NANOS_PER_SECOND);
         byte[] payload;
         if (sec >>> 34 == 0) {
             long data64 = (nsec << 34) | sec;
