@@ -28,6 +28,8 @@ class MessagePackWriteContext extends TokenStreamContext
     private Object currentValue;
     // For TYPE_OBJECT: true after writeName (expecting value), false after writeValue (expecting name)
     private boolean gotName;
+    // Whether a nil key was already written in this object, for duplicate detection.
+    private boolean sawNullName;
     // Where this container's header sits in the writer buffer, and how many bytes were
     // reserved for it, so the header can be patched with the final count on close.
     private int headerOffset;
@@ -46,6 +48,7 @@ class MessagePackWriteContext extends TokenStreamContext
         _type = type;
         _index = -1;
         gotName = false;
+        sawNullName = false;
         currentName = null;
         currentValue = value;
         if (dups != null) {
@@ -142,9 +145,16 @@ class MessagePackWriteContext extends TokenStreamContext
 
     private void _checkDup(String name) throws StreamWriteException
     {
-        // Null names (nil map keys) cannot be duplicate-checked via DupDetector
-        // because DupDetector.isDup(null) NPEs when a prior non-null name exists.
-        if (name != null && dups.isDup(name)) {
+        // A nil key has no String for DupDetector, so it is tracked here.
+        boolean dup;
+        if (name == null) {
+            dup = sawNullName;
+            sawNullName = true;
+        }
+        else {
+            dup = dups.isDup(name);
+        }
+        if (dup) {
             throw new StreamWriteException(null, "Duplicate Object property \"" + name + "\"");
         }
     }

@@ -43,6 +43,9 @@ public final class MessagePackReadContext
 
     protected MessagePackReadContext child = null;
 
+    // Whether a nil key was already seen in this object, for duplicate detection.
+    private boolean sawNullName;
+
     public MessagePackReadContext(MessagePackReadContext parent, DupDetector dups,
                                   int type, int expEntryCount)
     {
@@ -62,6 +65,7 @@ public final class MessagePackReadContext
         _index = -1;
         currentName = null;
         currentValue = null;
+        sawNullName = false;
         if (dups != null) {
             dups.reset();
         }
@@ -148,9 +152,16 @@ public final class MessagePackReadContext
 
     private void _checkDup(DupDetector dd, String name)
     {
-        // Null names (nil map keys) cannot be duplicate-checked via DupDetector
-        // because DupDetector.isDup(null) NPEs when a prior non-null name exists.
-        if (name != null && dd.isDup(name)) {
+        // A nil key has no String for DupDetector, so it is tracked here.
+        boolean dup;
+        if (name == null) {
+            dup = sawNullName;
+            sawNullName = true;
+        }
+        else {
+            dup = dd.isDup(name);
+        }
+        if (dup) {
             throw new StreamReadException(null,
                     "Duplicate field '" + name + "'", dd.findLocation());
         }

@@ -1512,6 +1512,47 @@ public class MessagePackParserTest
         }
     }
 
+    @Test
+    public void testSecondNilKeyIsADuplicateUnderStrictDetection() throws IOException
+    {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(baos)) {
+            packer.packMapHeader(2);
+            packer.packNil();
+            packer.packInt(1);
+            packer.packNil();
+            packer.packInt(2);
+        }
+        MessagePackFactory f = new MessagePackFactoryBuilder()
+                .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                .build();
+        try (JsonParser p = f.createParser(ObjectReadContext.empty(), baos.toByteArray())) {
+            assertEquals(JsonToken.START_OBJECT, p.nextToken());
+            assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+            assertEquals(JsonToken.VALUE_NUMBER_INT, p.nextToken());
+            tools.jackson.core.exc.StreamReadException e =
+                    assertThrows(tools.jackson.core.exc.StreamReadException.class, p::nextToken);
+            assertTrue(e.getMessage().contains("Duplicate"), e.getMessage());
+        }
+
+        // Two objects with one nil key each are not duplicates of each other.
+        baos.reset();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(baos)) {
+            packer.packArrayHeader(2);
+            packer.packMapHeader(1);
+            packer.packNil();
+            packer.packInt(1);
+            packer.packMapHeader(1);
+            packer.packNil();
+            packer.packInt(2);
+        }
+        try (JsonParser p = f.createParser(ObjectReadContext.empty(), baos.toByteArray())) {
+            while (p.nextToken() != null) {
+                // Just has to get through without an exception.
+            }
+        }
+    }
+
     // Closing releases the read buffer, so a parser closed mid-stream must not touch it again.
     @Test
     public void nextTokenAfterCloseReturnsNull()

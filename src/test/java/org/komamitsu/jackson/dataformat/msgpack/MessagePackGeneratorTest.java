@@ -1667,6 +1667,34 @@ public class MessagePackGeneratorTest
         }
     }
 
+    @Test
+    public void testSecondNullKeyIsADuplicateUnderStrictDetection()
+    {
+        MessagePackFactory f = new MessagePackFactoryBuilder()
+                .enable(StreamWriteFeature.STRICT_DUPLICATE_DETECTION)
+                .build();
+        JsonGenerator gen = f.createGenerator(ObjectWriteContext.empty(), new ByteArrayOutputStream());
+        gen.writeStartObject();
+        gen.writeName(new MessagePackSerializedString(null));
+        gen.writeNumber(1);
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class,
+                () -> gen.writeName(new MessagePackSerializedString(null)));
+
+        // A nil key in a fresh object is fine again.
+        JsonGenerator gen2 = f.createGenerator(ObjectWriteContext.empty(), new ByteArrayOutputStream());
+        gen2.writeStartArray();
+        gen2.writeStartObject();
+        gen2.writeName(new MessagePackSerializedString(null));
+        gen2.writeNumber(1);
+        gen2.writeEndObject();
+        gen2.writeStartObject();
+        gen2.writeName(new MessagePackSerializedString(null));
+        gen2.writeNumber(2);
+        gen2.writeEndObject();
+        gen2.writeEndArray();
+        gen2.close();
+    }
+
     // Bug: MessagePackSerializedString.charLength() calls getValue().length()
     // unconditionally; getValue() returns null when value is null → NPE.
     @Test
