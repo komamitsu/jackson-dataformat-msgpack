@@ -19,6 +19,14 @@ dependencies {
 
 jmh {
     jmhVersion = libs.versions.jmh.asProvider()
+    // ./gradlew :jmh:jmh -PjmhProfilers=gc
+    profilers = providers.gradleProperty("jmhProfilers").map { it.split(",") }.orElse(emptyList())
+    // ./gradlew :jmh:jmh -PjmhIncludes=WriteUTF8String
+    includes = providers.gradleProperty("jmhIncludes").map { it.split(",") }.orElse(emptyList())
+    // ./gradlew :jmh:jmh -PjmhProfilers=gc
+    profilers = providers.gradleProperty("jmhProfilers").map { it.split(",") }.orElse(emptyList())
+    // ./gradlew :jmh:jmh -PjmhIncludes=WriteUTF8String
+    includes = providers.gradleProperty("jmhIncludes").map { it.split(",") }.orElse(emptyList())
     jvmArgs = listOf(
         "--add-opens=java.base/java.nio=ALL-UNNAMED",
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
