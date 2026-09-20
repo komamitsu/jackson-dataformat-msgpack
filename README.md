@@ -187,7 +187,7 @@ Old msgpack-java (e.g 0.6.7) doesn't support MessagePack str8 type. When your ap
 
 ```java
 ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory().setStr8FormatSupport(false));
-// This string is serialized as bin8 type
+// A string of 32 to 255 bytes is serialized as str16 instead of str8
 byte[] resultWithoutStr8Format = objectMapper.writeValueAsBytes(str8LengthString);
 ```
 
