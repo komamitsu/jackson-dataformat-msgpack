@@ -411,16 +411,25 @@ final class MessagePackReader
                 return Instant.ofEpochSecond(readInt() & 0xffffffffL);
             case 8: {
                 long data64 = readLong();
-                return Instant.ofEpochSecond(data64 & 0x3ffffffffL, data64 >>> 34);
+                return Instant.ofEpochSecond(data64 & 0x3ffffffffL, checkedNanos(data64 >>> 34));
             }
             case 12: {
-                int nsec = readInt();
+                long nsec = readInt() & 0xffffffffL;
                 long sec = readLong();
-                return Instant.ofEpochSecond(sec, nsec);
+                return Instant.ofEpochSecond(sec, checkedNanos(nsec));
             }
             default:
                 throw new IOException("Timestamp extension has unexpected length " + header.getLength());
         }
+    }
+
+    // The spec caps the field at 999999999; Instant would carry anything larger into the seconds.
+    private static long checkedNanos(long nsec) throws IOException
+    {
+        if (nsec > 999_999_999L) {
+            throw new IOException("Timestamp nanoseconds out of range: " + nsec);
+        }
+        return nsec;
     }
 
     byte[] readPayload(int len) throws IOException

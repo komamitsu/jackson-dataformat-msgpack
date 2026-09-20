@@ -307,6 +307,41 @@ public class MessagePackReaderTest
         }
     }
 
+    // The spec caps the nanosecond field at 999999999; Instant would silently carry a larger
+    // value into the seconds, turning malformed input into a different timestamp.
+    @Test
+    public void timestampNanosecondsOutOfRangeAreRejected() throws IOException
+    {
+        // timestamp64: 30-bit nsec in the top bits. 1_000_000_000 fits in 30 bits.
+        byte[] ts64 = new byte[8];
+        long data64 = (1_000_000_000L << 34) | 1L;
+        for (int i = 0; i < 8; i++) {
+            ts64[i] = (byte) (data64 >>> (56 - 8 * i));
+        }
+        // timestamp96: 32-bit nsec first, then 64-bit sec. Both a value just past the cap
+        // and one with the sign bit set, which is unsigned per the spec.
+        for (int nsec : new int[] {1_000_000_000, 0x80000000}) {
+            byte[] ts96 = new byte[12];
+            for (int i = 0; i < 4; i++) {
+                ts96[i] = (byte) (nsec >>> (24 - 8 * i));
+            }
+            MessagePackReader r96 = new MessagePackReader(ts96, 0, 12);
+            assertThrows(IOException.class, () -> r96.unpackTimestamp(new ExtensionTypeHeader((byte) -1, 12)));
+        }
+        MessagePackReader r64 = new MessagePackReader(ts64, 0, 8);
+        assertThrows(IOException.class, () -> r64.unpackTimestamp(new ExtensionTypeHeader((byte) -1, 8)));
+
+        // The largest legal value is still fine in both forms.
+        Instant max = Instant.ofEpochSecond(1, 999_999_999);
+        byte[] ok64 = MessagePackWriter.timestampPayload(max);
+        assertEquals(8, ok64.length);
+        assertEquals(max, new MessagePackReader(ok64, 0, 8).unpackTimestamp(new ExtensionTypeHeader((byte) -1, 8)));
+        byte[] ok96 = MessagePackWriter.timestampPayload(Instant.ofEpochSecond(1L << 40, 999_999_999));
+        assertEquals(12, ok96.length);
+        assertEquals(Instant.ofEpochSecond(1L << 40, 999_999_999),
+                new MessagePackReader(ok96, 0, 12).unpackTimestamp(new ExtensionTypeHeader((byte) -1, 12)));
+    }
+
     @Test
     public void totalReadBytesTracksConsumption() throws IOException
     {
