@@ -136,6 +136,10 @@ public class MessagePackParser
         }
 
         MessageFormat format = reader.getNextFormat();
+        if (format == MessageFormat.NEVER_USED) {
+            // The one format byte (0xc1) the spec reserves; it has no value type.
+            return _reportError("Unexpected MessagePack format byte: 0xc1");
+        }
         ValueType valueType = format.getValueType();
 
         JsonToken nextToken;

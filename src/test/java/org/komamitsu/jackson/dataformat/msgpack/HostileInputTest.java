@@ -21,6 +21,7 @@ import tools.jackson.core.JsonToken;
 import tools.jackson.core.ObjectReadContext;
 import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.exc.StreamConstraintsException;
+import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.core.exc.UnexpectedEndOfInputException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -204,5 +205,24 @@ public class HostileInputTest
             value = ((java.util.List<?>) value).get(0);
         }
         assertEquals(1, value);
+    }
+
+    // 0xc1 is the one byte the MessagePack spec reserves and never assigns. It has no value
+    // type, so it must be reported like any other malformed input, not crash the parser.
+    @Test
+    public void reservedFormatByteIsReportedNotThrownAsNpe()
+    {
+        byte[] bare = {(byte) 0xc1};
+        byte[] nested = {FIXARRAY1, (byte) 0xc1};
+        try (JsonParser p = parser(bare)) {
+            assertThrows(StreamReadException.class, p::nextToken);
+        }
+        try (JsonParser p = streamParser(nested)) {
+            assertEquals(JsonToken.START_ARRAY, p.nextToken());
+            assertThrows(StreamReadException.class, p::nextToken);
+        }
+        ObjectMapper mapper = new MessagePackMapper();
+        assertThrows(StreamReadException.class, () -> mapper.readValue(bare, Object.class));
+        assertThrows(StreamReadException.class, () -> mapper.readValue(nested, JsonNode.class));
     }
 }
