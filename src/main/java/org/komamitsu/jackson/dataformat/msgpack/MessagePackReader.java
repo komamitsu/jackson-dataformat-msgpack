@@ -165,7 +165,16 @@ final class MessagePackReader
 
     String unpackString() throws IOException
     {
-        int len = unpackRawStringHeader();
+        return readString(unpackRawStringHeader());
+    }
+
+    /**
+     * Reads the payload of a string whose header was already consumed with
+     * {@link #unpackRawStringHeader()}, so the caller can check the declared length
+     * against its limits before anything is allocated.
+     */
+    String readString(int len) throws IOException
+    {
         if (len <= buf.length) {
             ensure(len);
             String s = new String(buf, pos, len, StandardCharsets.UTF_8);
@@ -295,6 +304,11 @@ final class MessagePackReader
 
     byte[] readPayload(int len) throws IOException
     {
+        if (in == null && len > end - pos) {
+            // An array source cannot deliver more than it holds; fail before allocating
+            // for a declared length that a hostile input may have inflated.
+            throw eof();
+        }
         byte[] result = new byte[len];
         int copied = Math.min(len, end - pos);
         System.arraycopy(buf, pos, result, 0, copied);

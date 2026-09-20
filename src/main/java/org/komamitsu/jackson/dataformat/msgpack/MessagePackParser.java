@@ -135,10 +135,14 @@ public class MessagePackParser
 
         JsonToken nextToken;
         switch (valueType) {
-            case STRING:
+            case STRING: {
                 type = Type.STRING;
-                stringValue = reader.unpackString();
-                _streamReadConstraints.validateStringLength(stringValue.length());
+                // Checked against the declared byte length before anything is allocated, so a
+                // small hostile input cannot request a huge buffer. A UTF-8 string has at most
+                // as many chars as bytes, so this is at least as strict as checking the result.
+                int len = reader.unpackRawStringHeader();
+                _streamReadConstraints.validateStringLength(len);
+                stringValue = reader.readString(len);
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(stringValue);
                     nextToken = JsonToken.PROPERTY_NAME;
@@ -147,6 +151,7 @@ public class MessagePackParser
                     nextToken = JsonToken.VALUE_STRING;
                 }
                 break;
+            }
             case INTEGER:
                 Object v;
                 switch (format) {
