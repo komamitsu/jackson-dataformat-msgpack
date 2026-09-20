@@ -243,12 +243,13 @@ public class MessagePackParser
                 type = Type.BYTES;
                 int len = reader.unpackBinaryHeader();
                 validateLength(len, isObjectValueSet);
-                bytesValue = reader.readPayload(len);
                 if (isObjectValueSet) {
-                    streamReadContext.setCurrentName(new String(bytesValue, StandardCharsets.UTF_8));
+                    // A bin key is a property name like any other, so it takes the same path.
+                    streamReadContext.setCurrentName(symbols == null ? reader.readString(len) : reader.readName(len, symbols));
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
+                    bytesValue = reader.readPayload(len);
                     nextToken = JsonToken.VALUE_EMBEDDED_OBJECT;
                 }
                 break;

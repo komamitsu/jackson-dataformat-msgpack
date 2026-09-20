@@ -121,6 +121,27 @@ public class PropertyNameCanonicalizationTest
         }
     }
 
+    // A bin-typed key is exposed as a property name too, and goes through the same table.
+    @Test
+    public void binaryKeysAreCanonicalizedLikeStringKeys() throws IOException
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(out)) {
+            packer.packArrayHeader(2);
+            for (int i = 0; i < 2; i++) {
+                packer.packMapHeader(1);
+                packer.packBinaryHeader(3);
+                packer.writePayload(new byte[] {'k', 'e', 'y'});
+                packer.packInt(i);
+            }
+        }
+        try (JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), out.toByteArray())) {
+            List<List<String>> all = readNames(p);
+            assertEquals("key", all.get(0).get(0));
+            assertSame(all.get(0).get(0), all.get(1).get(0));
+        }
+    }
+
     @Test
     public void repeatedNamesAreTheSameInstance() throws IOException
     {
