@@ -210,6 +210,13 @@ Map<Integer, String> deserialized = objectMapper.readValue(bytes, new TypeRefere
 System.out.println(deserialized);   // => {42=Hello}
 ```
 
+To apply it to every map key without annotating each field, register it through a module:
+
+```java
+SimpleModule module = new SimpleModule().addKeySerializer(Object.class, new MessagePackKeySerializer());
+ObjectMapper objectMapper = MessagePackMapper.builder().addModule(module).build();
+```
+
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
 `jackson-dataformat-msgpack` represents BigDecimal values as float type in MessagePack format by default for backward compatibility. But the default behavior could fail when handling too large value for `double` type. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.
