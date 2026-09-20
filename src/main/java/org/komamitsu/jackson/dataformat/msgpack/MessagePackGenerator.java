@@ -628,6 +628,11 @@ public class MessagePackGenerator
                         writeEndArray();
                     }
                     else {
+                        // A name whose value never came (typically a serializer that threw)
+                        // gets nil, keeping the output valid MessagePack.
+                        if (writeContext.isExpectingValue()) {
+                            writeNull();
+                        }
                         writeEndObject();
                     }
                 }

@@ -1337,6 +1337,32 @@ public class MessagePackGeneratorTest
     }
 
     @Test
+    public void closingWithDanglingPropertyNameWritesNilForItsValue()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out);
+        gen.writeStartArray();
+        gen.writeStartObject();
+        gen.writeName("a");
+        gen.writeNumber(1);
+        gen.writeName("b");
+        gen.close();
+
+        // {"a": 1, "b": nil} inside the array, so the output is still valid MessagePack.
+        assertArrayEquals(new byte[] {(byte) 0x91, (byte) 0x82, (byte) 0xa1, 'a', 1, (byte) 0xa1, 'b', (byte) 0xc0},
+                out.toByteArray());
+    }
+
+    @Test
+    public void explicitEndObjectWithDanglingPropertyNameFails()
+    {
+        JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), new ByteArrayOutputStream());
+        gen.writeStartObject();
+        gen.writeName("a");
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class, gen::writeEndObject);
+    }
+
+    @Test
     public void bufferedByteCountIsReported()
     {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
