@@ -140,6 +140,14 @@ public class PropertyNameCanonicalizationTest
             assertEquals("key", all.get(0).get(0));
             assertSame(all.get(0).get(0), all.get(1).get(0));
         }
+        // The text accessors on the PROPERTY_NAME token report the key, not a stale value.
+        try (JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), out.toByteArray())) {
+            assertEquals(JsonToken.START_ARRAY, p.nextToken());
+            assertEquals(JsonToken.START_OBJECT, p.nextToken());
+            assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+            assertEquals("key", p.getString());
+            assertEquals(3, p.getStringLength());
+        }
     }
 
     @Test

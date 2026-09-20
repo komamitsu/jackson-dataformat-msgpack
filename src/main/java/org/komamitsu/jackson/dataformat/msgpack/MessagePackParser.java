@@ -240,15 +240,18 @@ public class MessagePackParser
                 }
                 break;
             case BINARY:
-                type = Type.BYTES;
                 int len = reader.unpackBinaryHeader();
                 validateLength(len, isObjectValueSet);
                 if (isObjectValueSet) {
-                    // A bin key is a property name like any other, so it takes the same path.
-                    streamReadContext.setCurrentName(symbols == null ? reader.readString(len) : reader.readName(len, symbols));
+                    // A bin key is a property name like any other, so it takes the same path
+                    // and is exposed as text.
+                    type = Type.STRING;
+                    stringValue = symbols == null ? reader.readString(len) : reader.readName(len, symbols);
+                    streamReadContext.setCurrentName(stringValue);
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
+                    type = Type.BYTES;
                     bytesValue = reader.readPayload(len);
                     nextToken = JsonToken.VALUE_EMBEDDED_OBJECT;
                 }
