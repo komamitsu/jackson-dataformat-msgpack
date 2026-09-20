@@ -240,19 +240,18 @@ public class MessagePackParser
                 }
                 break;
             case BINARY:
+                type = Type.BYTES;
                 int len = reader.unpackBinaryHeader();
                 validateLength(len, isObjectValueSet);
+                bytesValue = reader.readPayload(len);
                 if (isObjectValueSet) {
-                    // A bin key is a property name like any other, so it takes the same path
-                    // and is exposed as text.
-                    type = Type.STRING;
-                    stringValue = symbols == null ? reader.readString(len) : reader.readName(len, symbols);
-                    streamReadContext.setCurrentName(stringValue);
+                    // A bin key keeps its raw bytes, reachable through getBinaryValue() on the
+                    // name token, so it is decoded rather than canonicalized. The writer never
+                    // produces bin for a name, so such keys are rare.
+                    streamReadContext.setCurrentName(new String(bytesValue, StandardCharsets.UTF_8));
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
-                    type = Type.BYTES;
-                    bytesValue = reader.readPayload(len);
                     nextToken = JsonToken.VALUE_EMBEDDED_OBJECT;
                 }
                 break;

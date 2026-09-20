@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -121,32 +122,27 @@ public class PropertyNameCanonicalizationTest
         }
     }
 
-    // A bin-typed key is exposed as a property name too, and goes through the same table.
+    // A bin-typed key is exposed as a property name, but it keeps its raw bytes, so a key
+    // deserializer can still get them unchanged through getBinaryValue(). Such keys are not
+    // canonicalized (the writer never produces them for names).
     @Test
-    public void binaryKeysAreCanonicalizedLikeStringKeys() throws IOException
+    public void binaryKeysKeepTheirBytes() throws IOException
     {
+        byte[] raw = {'k', (byte) 0xff, 'y'};
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (MessagePacker packer = MessagePack.newDefaultPacker(out)) {
-            packer.packArrayHeader(2);
-            for (int i = 0; i < 2; i++) {
-                packer.packMapHeader(1);
-                packer.packBinaryHeader(3);
-                packer.writePayload(new byte[] {'k', 'e', 'y'});
-                packer.packInt(i);
-            }
+            packer.packMapHeader(1);
+            packer.packBinaryHeader(raw.length);
+            packer.writePayload(raw);
+            packer.packInt(1);
         }
         try (JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), out.toByteArray())) {
-            List<List<String>> all = readNames(p);
-            assertEquals("key", all.get(0).get(0));
-            assertSame(all.get(0).get(0), all.get(1).get(0));
-        }
-        // The text accessors on the PROPERTY_NAME token report the key, not a stale value.
-        try (JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), out.toByteArray())) {
-            assertEquals(JsonToken.START_ARRAY, p.nextToken());
             assertEquals(JsonToken.START_OBJECT, p.nextToken());
             assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
-            assertEquals("key", p.getString());
-            assertEquals(3, p.getStringLength());
+            String name = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(name, p.currentName());
+            assertEquals(name, p.getString());
+            assertArrayEquals(raw, p.getBinaryValue());
         }
     }
 
