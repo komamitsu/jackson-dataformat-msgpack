@@ -1667,6 +1667,22 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Jackson's contract: a null argument to these is written as a null token.
+    @Test
+    public void nullArgumentsAreWrittenAsNil()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out)) {
+            gen.writeStartArray();
+            gen.writeString((String) null);
+            gen.writeNumber((BigInteger) null);
+            gen.writeNumber((BigDecimal) null);
+            gen.writeNumber((String) null);
+            gen.writeEndArray();
+        }
+        assertArrayEquals(new byte[] {(byte) 0x94, (byte) 0xc0, (byte) 0xc0, (byte) 0xc0, (byte) 0xc0}, out.toByteArray());
+    }
+
     @Test
     public void testSecondNullKeyIsADuplicateUnderStrictDetection()
     {

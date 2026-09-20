@@ -344,6 +344,9 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeString(String text) throws JacksonException
     {
+        if (text == null) {
+            return writeNull();
+        }
         verifyValueWrite();
         try {
             writer.packString(text);
@@ -485,6 +488,9 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeNumber(BigInteger v) throws JacksonException
     {
+        if (v == null) {
+            return writeNull();
+        }
         verifyValueWrite();
         try {
             writer.packBigInteger(v);
@@ -524,6 +530,9 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeNumber(BigDecimal dec) throws JacksonException
     {
+        if (dec == null) {
+            return writeNull();
+        }
         verifyValueWrite();
         try {
             packBigDecimal(dec);
@@ -540,6 +549,9 @@ public class MessagePackGenerator
         // There is a room to improve this API's performance while the implementation is robust.
         // If users can use other MessagePackGenerator#writeNumber APIs that accept
         // proper numeric types not String, it's better to use the other APIs instead.
+        if (encodedValue == null) {
+            return writeNull();
+        }
         try {
             return writeNumber(Long.parseLong(encodedValue));
         }
