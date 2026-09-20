@@ -6,6 +6,15 @@ It extends standard Jackson streaming API (`JsonFactory`, `JsonParser`, `JsonGen
 
 **Requirements:** Java 17+ and Jackson 3.x. For Jackson 2.x, use [`org.msgpack:jackson-dataformat-msgpack`](https://github.com/msgpack/msgpack-java/tree/main/msgpack-jackson) from msgpack-java instead.
 
+## Why this project was resumed
+
+This repository is where jackson-dataformat-msgpack started before it moved into msgpack-java as `msgpack-jackson`. It was picked up again for Jackson 3, as a rewrite that encodes and decodes MessagePack directly on Jackson's own buffers instead of delegating to msgpack-core. The reasons:
+
+- **Jackson 3 is a new major version.** The `tools.jackson` API differs from Jackson 2 and Jackson's own dataformat modules are released in step with jackson-core. A standalone module can follow that cadence; one hosted inside msgpack-java cannot.
+- **msgpack-core does not fit Jackson's I/O model.** msgpack-core brings its own buffer layer (`MessageBuffer`, `MessagePacker`, `MessageUnpacker`) with its own allocation and copying, so every value crossed two buffer layers, and the per-thread buffer reuse it needed broke when a serializer ran another `ObjectMapper` on the same thread. Encoding straight into Jackson's `IOContext` buffers removes the extra layer: on the same POJO benchmark, writes are 38% faster and reads 17% faster than the msgpack-core based build (see `jmh/results/`), and MessagePack read now allocates less per operation than Jackson's own JSON read.
+- **Jackson's safety and speed features come for free.** Building on Jackson's buffers is what Jackson's own binary formats (CBOR, Smile) do, and it is what makes `StreamReadConstraints` and `StreamWriteConstraints` (bounded allocation for hostile input, nesting limits), property-name canonicalization through `ByteQuadsCanonicalizer`, `BufferRecycler` pooling and the standard generator close semantics apply to MessagePack as well. Around msgpack-core, each of these had to be bolted on or was missing.
+- **One dependency.** The published artifact depends only on jackson-databind, so there is no version coupling between msgpack-core and jackson-core for users to manage. msgpack-core is still used in the tests, where every value is cross-checked against it.
+
 ## Install
 
 ### Maven
