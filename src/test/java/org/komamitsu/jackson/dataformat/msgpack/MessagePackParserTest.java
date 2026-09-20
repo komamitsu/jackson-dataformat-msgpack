@@ -1511,4 +1511,24 @@ public class MessagePackParserTest
             assertEquals(JsonToken.END_OBJECT, p.nextToken());
         }
     }
+
+    // Closing releases the read buffer, so a parser closed mid-stream must not touch it again.
+    @Test
+    public void nextTokenAfterCloseReturnsNull()
+    {
+        byte[] input = {(byte) 0x92, 1, 2};
+        JsonParser fromArray = new MessagePackFactory().createParser(ObjectReadContext.empty(), input);
+        assertEquals(JsonToken.START_ARRAY, fromArray.nextToken());
+        fromArray.close();
+        assertTrue(fromArray.isClosed());
+        assertNull(fromArray.nextToken());
+        assertNull(fromArray.currentToken());
+
+        JsonParser fromStream = new MessagePackFactory().createParser(ObjectReadContext.empty(), new ByteArrayInputStream(input));
+        assertEquals(JsonToken.START_ARRAY, fromStream.nextToken());
+        assertEquals(JsonToken.VALUE_NUMBER_INT, fromStream.nextToken());
+        fromStream.close();
+        assertNull(fromStream.nextToken());
+        assertNull(fromStream.currentToken());
+    }
 }

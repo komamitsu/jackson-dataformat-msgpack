@@ -98,6 +98,10 @@ public class MessagePackParser
     @Override
     public JsonToken nextToken() throws JacksonException
     {
+        if (isClosed) {
+            // The read buffer is released on close, so there is nothing left to read from.
+            return _updateTokenToNull();
+        }
         try {
             return _nextToken();
         }
