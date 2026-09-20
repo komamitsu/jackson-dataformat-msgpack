@@ -56,6 +56,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -1551,6 +1552,17 @@ public class MessagePackParserTest
                 // Just has to get through without an exception.
             }
         }
+    }
+
+    @Test
+    public void endOfInputClearsTheCurrentToken()
+    {
+        JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), new byte[] {1});
+        assertEquals(JsonToken.VALUE_NUMBER_INT, p.nextToken());
+        assertNull(p.nextToken());
+        assertNull(p.currentToken());
+        assertFalse(p.hasCurrentToken());
+        p.close();
     }
 
     // Closing releases the read buffer, so a parser closed mid-stream must not touch it again.

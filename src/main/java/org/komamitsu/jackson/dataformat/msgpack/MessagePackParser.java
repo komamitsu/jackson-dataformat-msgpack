@@ -134,7 +134,7 @@ public class MessagePackParser
 
         if (!reader.hasNext()) {
             if (streamReadContext.inRoot()) {
-                return null;
+                return _updateTokenToNull();
             }
             throw new UnexpectedEndOfInputException(this, null, null);
         }
