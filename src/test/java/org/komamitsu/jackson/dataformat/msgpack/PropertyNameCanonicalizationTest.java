@@ -86,6 +86,41 @@ public class PropertyNameCanonicalizationTest
         return all;
     }
 
+    // Short names are padded with 0xff bytes before lookup. Raw 0xff never occurs in valid
+    // UTF-8, but this reader tolerates malformed input, so a name that really contains
+    // 0xff bytes must not resolve to the padded name it happens to match.
+    @Test
+    public void malformedNameDoesNotCollideWithPaddedName() throws IOException
+    {
+        byte[][] pairs = {
+                {'a'}, {(byte) 0xff, (byte) 0xff, (byte) 0xff, 'a'},
+                {'a', 'b'}, {(byte) 0xff, (byte) 0xff, 'a', 'b'},
+                {'a', 'b', 'c', 'd', 'e'}, {'a', 'b', 'c', 'd', (byte) 0xff, (byte) 0xff, (byte) 0xff, 'e'},
+        };
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(out)) {
+            packer.packArrayHeader(1);
+            packer.packMapHeader(pairs.length);
+            for (byte[] raw : pairs) {
+                packer.packRawStringHeader(raw.length);
+                packer.writePayload(raw);
+                packer.packInt(1);
+            }
+        }
+        MessagePackFactory factory = new MessagePackFactory();
+        for (JsonParser p : new JsonParser[] {
+                factory.createParser(ObjectReadContext.empty(), out.toByteArray()),
+                factory.createParser(ObjectReadContext.empty(), new ByteArrayInputStream(out.toByteArray())),
+        }) {
+            try (p) {
+                List<String> names = readNames(p).get(0);
+                for (int i = 0; i < pairs.length; i++) {
+                    assertEquals(new String(pairs[i], java.nio.charset.StandardCharsets.UTF_8), names.get(i));
+                }
+            }
+        }
+    }
+
     @Test
     public void repeatedNamesAreTheSameInstance() throws IOException
     {

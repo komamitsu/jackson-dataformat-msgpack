@@ -206,9 +206,15 @@ final class MessagePackReader
         ensure(len);
         final byte[] b = buf;
         final int p = pos;
+        // Short names are padded with 0xff bytes, so a name that really holds a 0xff byte
+        // could match a padded one. 0xff never occurs in valid UTF-8, so such a name is
+        // malformed anyway and is decoded without the table.
         String name;
         if (len < 5) {
             int q = partialQuad(b, p, len);
+            if (partialFF(q, len) != 0) {
+                return readString(len);
+            }
             name = symbols.findName(q);
             if (name == null) {
                 name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), q);
@@ -217,6 +223,9 @@ final class MessagePackReader
         else if (len < 9) {
             int q1 = quad(b, p);
             int q2 = partialQuad(b, p + 4, len - 4);
+            if ((ffBytes(q1) | partialFF(q2, len - 4)) != 0) {
+                return readString(len);
+            }
             name = symbols.findName(q1, q2);
             if (name == null) {
                 name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), q1, q2);
@@ -226,6 +235,9 @@ final class MessagePackReader
             int q1 = quad(b, p);
             int q2 = quad(b, p + 4);
             int q3 = partialQuad(b, p + 8, len - 8);
+            if ((ffBytes(q1) | ffBytes(q2) | partialFF(q3, len - 8)) != 0) {
+                return readString(len);
+            }
             name = symbols.findName(q1, q2, q3);
             if (name == null) {
                 name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), q1, q2, q3);
@@ -239,13 +251,21 @@ final class MessagePackReader
             int off = p;
             int remaining = len;
             int i = 0;
+            int ff = 0;
             while (remaining > 3) {
-                quadBuffer[i++] = quad(b, off);
+                int q = quad(b, off);
+                ff |= ffBytes(q);
+                quadBuffer[i++] = q;
                 off += 4;
                 remaining -= 4;
             }
             if (remaining > 0) {
-                quadBuffer[i++] = partialQuad(b, off, remaining);
+                int q = partialQuad(b, off, remaining);
+                ff |= partialFF(q, remaining);
+                quadBuffer[i++] = q;
+            }
+            if (ff != 0) {
+                return readString(len);
             }
             name = symbols.findName(quadBuffer, qlen);
             if (name == null) {
@@ -259,6 +279,18 @@ final class MessagePackReader
     private static int quad(byte[] b, int off)
     {
         return ((b[off] & 0xff) << 24) | ((b[off + 1] & 0xff) << 16) | ((b[off + 2] & 0xff) << 8) | (b[off + 3] & 0xff);
+    }
+
+    // The high bit of every byte of q that is 0xff, and no other bits.
+    private static int ffBytes(int q)
+    {
+        return ((q & 0x7f7f7f7f) + 0x01010101) & q & 0x80808080;
+    }
+
+    // Same for the n real bytes of a partial quad, ignoring the padding.
+    private static int partialFF(int q, int n)
+    {
+        return ffBytes(q) & (-1 >>> (32 - 8 * n));
     }
 
     // A quad holding 1 to 4 bytes. The first byte is padded with 1-bits above it so that a
