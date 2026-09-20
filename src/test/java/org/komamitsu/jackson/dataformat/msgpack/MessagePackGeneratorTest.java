@@ -1318,6 +1318,25 @@ public class MessagePackGeneratorTest
     }
 
     @Test
+    public void closingAfterNestingConstraintFailureWritesTheOpenContainers()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        MessagePackFactory factory = (MessagePackFactory) new MessagePackFactory().rebuild()
+                .streamWriteConstraints(tools.jackson.core.StreamWriteConstraints.builder().maxNestingDepth(2).build())
+                .build();
+        JsonGenerator gen = factory.createGenerator(ObjectWriteContext.empty(), out);
+        gen.writeStartArray();
+        gen.writeStartArray();
+        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, gen::writeStartArray);
+        // The rejected container was never opened, so the write context is still its parent.
+        assertEquals(2, gen.streamWriteContext().getNestingDepth());
+        gen.close();
+
+        // AUTO_CLOSE_CONTENT finishes the two containers that were actually opened.
+        assertArrayEquals(new byte[] {(byte) 0x91, (byte) 0x90}, out.toByteArray());
+    }
+
+    @Test
     public void bufferedByteCountIsReported()
     {
         ByteArrayOutputStream out = new ByteArrayOutputStream();

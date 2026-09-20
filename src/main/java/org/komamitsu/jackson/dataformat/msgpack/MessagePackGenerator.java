@@ -102,9 +102,10 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeStartArray(Object currentValue, int size) throws JacksonException
     {
+        // Checked before anything is counted or created, so a rejected container leaves no trace.
+        streamWriteConstraints().validateNestingDepth(writeContext.getNestingDepth() + 1);
         _verifyValueWrite("start an array");
         writeContext = writeContext.createChildArrayContext(currentValue);
-        streamWriteConstraints().validateNestingDepth(writeContext.getNestingDepth());
         openContainer(false, size);
         return this;
     }
@@ -134,9 +135,10 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeStartObject(Object forValue, int size) throws JacksonException
     {
+        // Checked before anything is counted or created, so a rejected container leaves no trace.
+        streamWriteConstraints().validateNestingDepth(writeContext.getNestingDepth() + 1);
         _verifyValueWrite("start an object");
         writeContext = writeContext.createChildObjectContext(forValue);
-        streamWriteConstraints().validateNestingDepth(writeContext.getNestingDepth());
         openContainer(true, size);
         return this;
     }
