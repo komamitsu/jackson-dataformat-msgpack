@@ -125,32 +125,6 @@ public final class MessagePackReadContext
         return parent;
     }
 
-    public boolean hasExpectedLength()
-    {
-        return (expEntryCount >= 0);
-    }
-
-    public int getExpectedLength()
-    {
-        return expEntryCount;
-    }
-
-    public boolean isEmpty()
-    {
-        return expEntryCount == 0;
-    }
-
-    public int getRemainingExpectedLength()
-    {
-        int diff = expEntryCount - _index;
-        return Math.max(0, diff);
-    }
-
-    public boolean acceptsBreakMarker()
-    {
-        return (expEntryCount < 0) && _type != TYPE_ROOT;
-    }
-
     public boolean expectMoreValues()
     {
         if (++_index == expEntryCount) {
