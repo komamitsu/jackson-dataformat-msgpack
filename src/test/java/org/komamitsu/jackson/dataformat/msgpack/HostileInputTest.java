@@ -44,7 +44,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class HostileInputTest
 {
     private static final byte STR32 = (byte) 0xdb;
+    private static final byte BIN8 = (byte) 0xc4;
     private static final byte BIN32 = (byte) 0xc6;
+    private static final byte EXT8 = (byte) 0xc7;
     private static final byte EXT32 = (byte) 0xc9;
     private static final byte ARRAY32 = (byte) 0xdd;
     private static final byte MAP32 = (byte) 0xdf;
@@ -205,6 +207,54 @@ public class HostileInputTest
             value = ((java.util.List<?>) value).get(0);
         }
         assertEquals(1, value);
+    }
+
+    // Property names have their own, tighter limit (maxNameLength, 50000 by default) that
+    // applies to every key form, not just the general string limit.
+    @Test
+    public void mapKeysAreCheckedAgainstTheNameLimit()
+    {
+        StreamReadConstraints tight = StreamReadConstraints.builder().maxNameLength(4).build();
+        MessagePackFactory f = (MessagePackFactory) new MessagePackFactory().rebuild().streamReadConstraints(tight).build();
+        byte[] fourByteName = {FIXMAP1, (byte) 0xa4, 'a', 'b', 'c', 'd', 1};
+        byte[] fiveByteName = {FIXMAP1, (byte) 0xa5, 'a', 'b', 'c', 'd', 'e', 1};
+        byte[] fiveByteBinName = {FIXMAP1, BIN8, 5, 'a', 'b', 'c', 'd', 'e', 1};
+        byte[] fiveByteExtName = {FIXMAP1, EXT8, 5, 7, 'a', 'b', 'c', 'd', 'e', 1};
+        byte[] fiveByteValue = {FIXARRAY1, (byte) 0xa5, 'a', 'b', 'c', 'd', 'e'};
+
+        try (JsonParser p = f.createParser(ObjectReadContext.empty(), fourByteName)) {
+            assertEquals(JsonToken.START_OBJECT, p.nextToken());
+            assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+        }
+        for (byte[] input : new byte[][] {fiveByteName, fiveByteBinName, fiveByteExtName}) {
+            try (JsonParser p = f.createParser(ObjectReadContext.empty(), input)) {
+                assertEquals(JsonToken.START_OBJECT, p.nextToken());
+                assertThrows(StreamConstraintsException.class, p::nextToken);
+            }
+        }
+        // The same bytes as a value are only subject to the string limit.
+        try (JsonParser p = f.createParser(ObjectReadContext.empty(), fiveByteValue)) {
+            assertEquals(JsonToken.START_ARRAY, p.nextToken());
+            assertEquals(JsonToken.VALUE_STRING, p.nextToken());
+            assertEquals("abcde", p.getString());
+        }
+    }
+
+    // An array or map in key position cannot be a property name. It must be rejected, not
+    // emitted as START_ARRAY/START_OBJECT, which would shift every following key and value.
+    @Test
+    public void containerMapKeysAreRejected()
+    {
+        byte[] arrayKey = {FIXMAP1, FIXARRAY1, 1, 2};
+        byte[] mapKey = {FIXMAP1, FIXMAP1, (byte) 0xa1, 'k', 1, 2};
+        for (byte[] input : new byte[][] {arrayKey, mapKey}) {
+            try (JsonParser p = parser(input)) {
+                assertEquals(JsonToken.START_OBJECT, p.nextToken());
+                StreamReadException e = assertThrows(StreamReadException.class, p::nextToken);
+                assertTrue(e.getMessage().contains("key"), e.getMessage());
+            }
+            assertThrows(StreamReadException.class, () -> new MessagePackMapper().readValue(input, Object.class));
+        }
     }
 
     // 0xc1 is the one byte the MessagePack spec reserves and never assigns. It has no value

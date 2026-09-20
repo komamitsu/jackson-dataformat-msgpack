@@ -154,7 +154,7 @@ public class MessagePackParser
                 // small hostile input cannot request a huge buffer. A UTF-8 string has at most
                 // as many chars as bytes, so this is at least as strict as checking the result.
                 int len = reader.unpackRawStringHeader();
-                _streamReadConstraints.validateStringLength(len);
+                validateLength(len, isObjectValueSet);
                 if (isObjectValueSet) {
                     stringValue = symbols == null ? reader.readString(len) : reader.readName(len, symbols);
                     streamReadContext.setCurrentName(stringValue);
@@ -242,7 +242,7 @@ public class MessagePackParser
             case BINARY:
                 type = Type.BYTES;
                 int len = reader.unpackBinaryHeader();
-                _streamReadConstraints.validateStringLength(len);
+                validateLength(len, isObjectValueSet);
                 bytesValue = reader.readPayload(len);
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(new String(bytesValue, StandardCharsets.UTF_8));
@@ -253,11 +253,17 @@ public class MessagePackParser
                 }
                 break;
             case ARRAY:
+                if (isObjectValueSet) {
+                    return _reportError("Cannot use an array as a map key: no property name can represent it");
+                }
                 nextToken = JsonToken.START_ARRAY;
                 streamReadContext = streamReadContext.createChildArrayContext(reader.unpackArrayHeader());
                 _streamReadConstraints.validateNestingDepth(streamReadContext.getNestingDepth());
                 break;
             case MAP:
+                if (isObjectValueSet) {
+                    return _reportError("Cannot use a map as a map key: no property name can represent it");
+                }
                 nextToken = JsonToken.START_OBJECT;
                 streamReadContext = streamReadContext.createChildObjectContext(reader.unpackMapHeader());
                 _streamReadConstraints.validateNestingDepth(streamReadContext.getNestingDepth());
@@ -265,7 +271,7 @@ public class MessagePackParser
             case EXTENSION:
                 type = Type.EXT;
                 ExtensionTypeHeader header = reader.unpackExtensionTypeHeader();
-                _streamReadConstraints.validateStringLength(header.getLength());
+                validateLength(header.getLength(), isObjectValueSet);
                 extensionTypeValue = new MessagePackExtensionType(header.getType(), reader.readPayload(header.getLength()));
                 if (isObjectValueSet) {
                     streamReadContext.setCurrentName(deserializedExtensionTypeValue().toString());
@@ -283,6 +289,18 @@ public class MessagePackParser
         _updateToken(nextToken);
 
         return nextToken;
+    }
+
+    // A declared payload length is checked before anything is allocated for it. Keys get
+    // the tighter name limit, values the string limit.
+    private void validateLength(int len, boolean isKey) throws JacksonException
+    {
+        if (isKey) {
+            _streamReadConstraints.validateNameLength(len);
+        }
+        else {
+            _streamReadConstraints.validateStringLength(len);
+        }
     }
 
     @Override
