@@ -144,6 +144,13 @@ public class MessagePackFactory
                 out, str8FormatSupport, supportIntegerKeys);
     }
 
+    // The symbol table is transient, so a deserialized instance is replaced by a copy that
+    // has a fresh one. Same as Jackson's own factories.
+    protected Object readResolve()
+    {
+        return new MessagePackFactory(this);
+    }
+
     @Override
     public TokenStreamFactory copy()
     {

@@ -145,6 +145,30 @@ public class MessagePackFactoryTest
         assertThat(snapshot, is(instanceOf(MessagePackFactory.class)));
     }
 
+    // The symbol table is transient, so a deserialized factory must get a fresh one.
+    @Test
+    public void testDeserializedFactoryCanParse() throws IOException, ClassNotFoundException
+    {
+        MessagePackFactory original = new MessagePackFactory().setStr8FormatSupport(false).setSupportIntegerKeys(true);
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bytes)) {
+            oos.writeObject(original);
+        }
+        MessagePackFactory restored;
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()))) {
+            restored = (MessagePackFactory) ois.readObject();
+        }
+        assertEquals(false, restored.isStr8FormatSupport());
+        assertEquals(true, restored.isSupportIntegerKeys());
+
+        byte[] map = {(byte) 0x81, (byte) 0xa1, 'k', 1};
+        try (JsonParser p = restored.createParser(ObjectReadContext.empty(), map)) {
+            assertEquals(tools.jackson.core.JsonToken.START_OBJECT, p.nextToken());
+            assertEquals(tools.jackson.core.JsonToken.PROPERTY_NAME, p.nextToken());
+            assertEquals("k", p.currentName());
+        }
+    }
+
     @Test
     public void testCopyWithAdvancedConfig()
             throws IOException
