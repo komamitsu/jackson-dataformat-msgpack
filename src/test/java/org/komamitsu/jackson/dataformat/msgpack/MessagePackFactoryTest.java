@@ -169,6 +169,32 @@ public class MessagePackFactoryTest
         }
     }
 
+    // Custom extension deserializers are part of the factory's configuration, so they must
+    // survive Java serialization with it.
+    @Test
+    public void testDeserializedFactoryKeepsCustomExtensionDeserializers() throws IOException, ClassNotFoundException
+    {
+        ExtensionTypeCustomDeserializers desers = new ExtensionTypeCustomDeserializers();
+        desers.addCustomDeser((byte) 7, data -> "ext:" + new String(data, java.nio.charset.StandardCharsets.UTF_8));
+        MessagePackFactory original = new MessagePackFactory().setExtTypeCustomDesers(desers);
+
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bytes)) {
+            oos.writeObject(original);
+        }
+        MessagePackFactory restored;
+        try (java.io.ObjectInputStream ois = new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()))) {
+            restored = (MessagePackFactory) ois.readObject();
+        }
+
+        // fixext 2, type 7, payload "hi".
+        byte[] input = {(byte) 0xd5, 7, 'h', 'i'};
+        try (JsonParser p = restored.createParser(ObjectReadContext.empty(), input)) {
+            assertEquals(tools.jackson.core.JsonToken.VALUE_EMBEDDED_OBJECT, p.nextToken());
+            assertEquals("ext:hi", p.getEmbeddedObject());
+        }
+    }
+
     @Test
     public void testCopyWithAdvancedConfig()
             throws IOException

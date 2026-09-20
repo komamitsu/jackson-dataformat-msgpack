@@ -16,12 +16,21 @@
 package org.komamitsu.jackson.dataformat.msgpack;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Part of a {@link MessagePackFactory}'s configuration, so it is serialized with the factory.
+ * A lambda passed to {@link #addCustomDeser} is serializable as long as everything it
+ * captures is.
+ */
 public class ExtensionTypeCustomDeserializers
+        implements Serializable
 {
-    private Map<Byte, Deser> deserTable = new ConcurrentHashMap<>();
+    private static final long serialVersionUID = 1L;
+
+    private final Map<Byte, Deser> deserTable = new ConcurrentHashMap<>();
 
     public ExtensionTypeCustomDeserializers()
     {
@@ -49,6 +58,7 @@ public class ExtensionTypeCustomDeserializers
     }
 
     public interface Deser
+            extends Serializable
     {
         Object deserialize(byte[] data)
                 throws IOException;
