@@ -31,6 +31,7 @@ import tools.jackson.core.TokenStreamFactory;
 import tools.jackson.core.Version;
 import tools.jackson.core.base.BinaryTSFactory;
 import tools.jackson.core.io.IOContext;
+import tools.jackson.core.sym.ByteQuadsCanonicalizer;
 
 import java.io.DataInput;
 import java.io.InputStream;
@@ -41,6 +42,11 @@ public class MessagePackFactory
         implements java.io.Serializable
 {
     private static final long serialVersionUID = 2578263992015504348L;
+
+    // Shared table of property names seen by parsers from this factory, so repeated keys
+    // resolve to the same String without decoding. Each parser gets a child that is merged
+    // back on close.
+    private final transient ByteQuadsCanonicalizer byteSymbolCanonicalizer = ByteQuadsCanonicalizer.createRoot();
 
     private boolean str8FormatSupport = true;
     private boolean supportIntegerKeys = false;
@@ -112,8 +118,10 @@ public class MessagePackFactory
 
     private MessagePackParser newParser(ObjectReadContext readCtxt, IOContext ioCtxt, MessagePackReader reader)
     {
+        ByteQuadsCanonicalizer symbols = Feature.CANONICALIZE_PROPERTY_NAMES.enabledIn(_factoryFeatures)
+                ? byteSymbolCanonicalizer.makeChild(_factoryFeatures) : null;
         MessagePackParser parser = new MessagePackParser(readCtxt, ioCtxt,
-                readCtxt.getStreamReadFeatures(_streamReadFeatures), reader);
+                readCtxt.getStreamReadFeatures(_streamReadFeatures), reader, symbols);
         if (extTypeCustomDesers != null) {
             parser.setExtensionTypeCustomDeserializers(extTypeCustomDesers);
         }

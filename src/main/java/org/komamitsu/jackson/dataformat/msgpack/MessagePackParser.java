@@ -27,6 +27,7 @@ import tools.jackson.core.base.ParserMinimalBase;
 import tools.jackson.core.exc.UnexpectedEndOfInputException;
 import tools.jackson.core.io.IOContext;
 import tools.jackson.core.json.DupDetector;
+import tools.jackson.core.sym.ByteQuadsCanonicalizer;
 import org.komamitsu.jackson.dataformat.msgpack.MessageFormat.ValueType;
 
 import java.io.EOFException;
@@ -39,6 +40,8 @@ public class MessagePackParser
         extends ParserMinimalBase
 {
     private final MessagePackReader reader;
+    // Null when CANONICALIZE_PROPERTY_NAMES is disabled.
+    private final ByteQuadsCanonicalizer symbols;
 
     private static final BigInteger LONG_MIN = BigInteger.valueOf(Long.MIN_VALUE);
     private static final BigInteger LONG_MAX = BigInteger.valueOf(Long.MAX_VALUE);
@@ -68,7 +71,8 @@ public class MessagePackParser
     MessagePackParser(ObjectReadContext readCtxt,
             IOContext ioCtxt,
             int streamReadFeatures,
-            MessagePackReader reader)
+            MessagePackReader reader,
+            ByteQuadsCanonicalizer symbols)
     {
         super(readCtxt, ioCtxt, streamReadFeatures);
 
@@ -77,6 +81,7 @@ public class MessagePackParser
                 ? DupDetector.rootDetector(this) : null;
         streamReadContext = MessagePackReadContext.createRootContext(dups);
         this.reader = reader;
+        this.symbols = symbols;
     }
 
     public void setExtensionTypeCustomDeserializers(ExtensionTypeCustomDeserializers extTypeCustomDesers)
@@ -142,12 +147,13 @@ public class MessagePackParser
                 // as many chars as bytes, so this is at least as strict as checking the result.
                 int len = reader.unpackRawStringHeader();
                 _streamReadConstraints.validateStringLength(len);
-                stringValue = reader.readString(len);
                 if (isObjectValueSet) {
+                    stringValue = symbols == null ? reader.readString(len) : reader.readName(len, symbols);
                     streamReadContext.setCurrentName(stringValue);
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
+                    stringValue = reader.readString(len);
                     nextToken = JsonToken.VALUE_STRING;
                 }
                 break;
@@ -657,6 +663,10 @@ public class MessagePackParser
     protected void _releaseBuffers()
     {
         reader.release();
+        if (symbols != null) {
+            // Hands names learned by this parser back to the factory's shared table.
+            symbols.release();
+        }
     }
 
     @Override

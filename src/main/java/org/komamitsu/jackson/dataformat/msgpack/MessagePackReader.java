@@ -17,6 +17,7 @@ package org.komamitsu.jackson.dataformat.msgpack;
 
 import org.komamitsu.jackson.dataformat.msgpack.MessageFormat.Code;
 import tools.jackson.core.io.IOContext;
+import tools.jackson.core.sym.ByteQuadsCanonicalizer;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -42,6 +43,8 @@ final class MessagePackReader
     // Bytes consumed and then discarded from the buffer, so that consumed + pos is the
     // total consumed. Starts negative for array sources that begin at an offset.
     private long consumed;
+    // Scratch for property names longer than 12 bytes, see readName.
+    private int[] quadBuffer;
 
     /**
      * @param readAhead whether the stream may be read past the current value. Pass false
@@ -182,6 +185,89 @@ final class MessagePackReader
             return s;
         }
         return new String(readPayload(len), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Reads a string payload as a property name. The raw bytes are looked up in the symbol
+     * table first, so a name seen before is returned as the same String instance without
+     * decoding or allocating. Mirrors how Jackson's own binary parsers handle names.
+     */
+    String readName(int len, ByteQuadsCanonicalizer symbols) throws IOException
+    {
+        if (len == 0) {
+            return "";
+        }
+        if (len > buf.length) {
+            return readString(len);
+        }
+        ensure(len);
+        final byte[] b = buf;
+        final int p = pos;
+        String name;
+        if (len < 5) {
+            int q = partialQuad(b, p, len);
+            name = symbols.findName(q);
+            if (name == null) {
+                name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), q);
+            }
+        }
+        else if (len < 9) {
+            int q1 = quad(b, p);
+            int q2 = partialQuad(b, p + 4, len - 4);
+            name = symbols.findName(q1, q2);
+            if (name == null) {
+                name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), q1, q2);
+            }
+        }
+        else if (len < 13) {
+            int q1 = quad(b, p);
+            int q2 = quad(b, p + 4);
+            int q3 = partialQuad(b, p + 8, len - 8);
+            name = symbols.findName(q1, q2, q3);
+            if (name == null) {
+                name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), q1, q2, q3);
+            }
+        }
+        else {
+            int qlen = (len + 3) >> 2;
+            if (quadBuffer == null || quadBuffer.length < qlen) {
+                quadBuffer = new int[qlen + 4];
+            }
+            int off = p;
+            int remaining = len;
+            int i = 0;
+            while (remaining > 3) {
+                quadBuffer[i++] = quad(b, off);
+                off += 4;
+                remaining -= 4;
+            }
+            if (remaining > 0) {
+                quadBuffer[i++] = partialQuad(b, off, remaining);
+            }
+            name = symbols.findName(quadBuffer, qlen);
+            if (name == null) {
+                name = symbols.addName(new String(b, p, len, StandardCharsets.UTF_8), quadBuffer, qlen);
+            }
+        }
+        pos += len;
+        return name;
+    }
+
+    private static int quad(byte[] b, int off)
+    {
+        return ((b[off] & 0xff) << 24) | ((b[off + 1] & 0xff) << 16) | ((b[off + 2] & 0xff) << 8) | (b[off + 3] & 0xff);
+    }
+
+    // A quad holding 1 to 4 bytes. The first byte is padded with 1-bits above it so that a
+    // name is distinguished from the same name followed by NUL bytes; the padding shifts out
+    // when all four bytes are present.
+    private static int partialQuad(byte[] b, int off, int n)
+    {
+        int q = (b[off] & 0xff) | 0xffffff00;
+        for (int i = 1; i < n; i++) {
+            q = (q << 8) + (b[off + i] & 0xff);
+        }
+        return q;
     }
 
     int unpackRawStringHeader() throws IOException
