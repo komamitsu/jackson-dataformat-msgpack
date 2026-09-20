@@ -13,8 +13,6 @@ This repository is where jackson-dataformat-msgpack started before it moved into
 - Jackson 3 is a new major version with a new API, and a standalone module can follow its release cadence.
 - msgpack-core has its own buffer layer, so every value crossed two buffer layers. Working directly on Jackson's buffers, as Jackson's own CBOR and Smile modules do, removed that overhead (writes +38%, reads +17% on the same POJO, see `jmh/results/`) and brought Jackson's read constraints, name canonicalization and buffer pooling to MessagePack.
 
-The published artifact depends only on jackson-databind.
-
 ## Install
 
 ### Maven
