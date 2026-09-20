@@ -198,6 +198,9 @@ final class MessagePackReader
             return "";
         }
         if (len > buf.length) {
+            // A name longer than the whole read buffer (8000 bytes by default) is not a real
+            // property name. It is decoded like any string and deliberately kept out of the
+            // shared symbol table, where it would only take up space.
             return readString(len);
         }
         ensure(len);
