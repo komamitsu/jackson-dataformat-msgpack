@@ -60,7 +60,7 @@ public class MessagePackGenerator
             boolean supportIntegerKeys)
     {
         this(writeCtxt, ioCtxt, streamWriteFeatures, out,
-                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, str8FormatSupport, supportIntegerKeys);
+                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, 0, str8FormatSupport, supportIntegerKeys);
     }
 
     private MessagePackGenerator(
@@ -70,6 +70,7 @@ public class MessagePackGenerator
             OutputStream out,
             MessagePackWriter writer,
             boolean ownsWriter,
+            int nestingDepth,
             boolean str8FormatSupport,
             boolean supportIntegerKeys)
     {
@@ -81,7 +82,8 @@ public class MessagePackGenerator
         this.supportIntegerKeys = supportIntegerKeys;
         this.writeContext = MessagePackWriteContext.createRootContext(
                 StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
-                        ? DupDetector.rootDetector(this) : null);
+                        ? DupDetector.rootDetector(this) : null,
+                nestingDepth);
     }
 
     @Override
@@ -216,10 +218,11 @@ public class MessagePackGenerator
         }
         else {
             // Any other key type is serialized as a nested value in key position, straight into
-            // this generator's writer. The nested generator only tracks its own context stack.
+            // this generator's writer. The nested generator only tracks its own context stack,
+            // but starts counting depth where this one is so the nesting limit still holds.
             try (MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
-                    writer, false, str8FormatSupport, supportIntegerKeys)) {
+                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
                 objectWriteContext().writeValue(nested, key);
             }
         }

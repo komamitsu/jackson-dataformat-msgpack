@@ -33,12 +33,12 @@ class MessagePackWriteContext extends TokenStreamContext
     private int headerOffset;
     private int reservedHeaderLength;
 
-    private MessagePackWriteContext(int type, MessagePackWriteContext parent, DupDetector dups)
+    private MessagePackWriteContext(int type, MessagePackWriteContext parent, DupDetector dups, int nestingDepth)
     {
         super(type, -1);
         this.parent = parent;
         this.dups = dups;
-        _nestingDepth = parent == null ? 0 : parent._nestingDepth + 1;
+        _nestingDepth = nestingDepth;
     }
 
     private MessagePackWriteContext reset(int type, Object value)
@@ -56,27 +56,36 @@ class MessagePackWriteContext extends TokenStreamContext
 
     static MessagePackWriteContext createRootContext(DupDetector dups)
     {
-        return new MessagePackWriteContext(TYPE_ROOT, null, dups);
+        return createRootContext(dups, 0);
+    }
+
+    /**
+     * A root context that counts nesting from the given depth, for a generator that writes
+     * a value inside another generator's containers.
+     */
+    static MessagePackWriteContext createRootContext(DupDetector dups, int nestingDepth)
+    {
+        return new MessagePackWriteContext(TYPE_ROOT, null, dups, nestingDepth);
     }
 
     MessagePackWriteContext createChildArrayContext(Object value)
     {
-        MessagePackWriteContext ctx = childToRecycle;
-        if (ctx == null) {
-            ctx = new MessagePackWriteContext(TYPE_ARRAY, this, dups == null ? null : dups.child());
-            childToRecycle = ctx;
-        }
-        return ctx.reset(TYPE_ARRAY, value);
+        return child().reset(TYPE_ARRAY, value);
     }
 
     MessagePackWriteContext createChildObjectContext(Object value)
     {
+        return child().reset(TYPE_OBJECT, value);
+    }
+
+    private MessagePackWriteContext child()
+    {
         MessagePackWriteContext ctx = childToRecycle;
         if (ctx == null) {
-            ctx = new MessagePackWriteContext(TYPE_OBJECT, this, dups == null ? null : dups.child());
+            ctx = new MessagePackWriteContext(TYPE_ARRAY, this, dups == null ? null : dups.child(), _nestingDepth + 1);
             childToRecycle = ctx;
         }
-        return ctx.reset(TYPE_OBJECT, value);
+        return ctx;
     }
 
     @Override

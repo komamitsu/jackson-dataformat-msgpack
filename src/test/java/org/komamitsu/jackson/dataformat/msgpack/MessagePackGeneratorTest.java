@@ -1390,6 +1390,29 @@ public class MessagePackGeneratorTest
     }
 
     @Test
+    public void complexKeyCountsTowardsTheNestingLimit()
+    {
+        // Outer map (1), the key object (2), the key's list (3).
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
+        Map<KeyWithList, Integer> map = Collections.singletonMap(new KeyWithList("k", Arrays.asList(1)), 1);
+
+        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).addModule(mod).build();
+        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> limitedToTwo.writeValueAsBytes(map));
+
+        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).addModule(mod).build();
+        byte[] bytes = limitedToThree.writeValueAsBytes(map);
+        assertEquals((byte) 0x81, bytes[0]);
+    }
+
+    private static MessagePackFactory withMaxNestingDepth(int depth)
+    {
+        return (MessagePackFactory) new MessagePackFactory().rebuild()
+                .streamWriteConstraints(tools.jackson.core.StreamWriteConstraints.builder().maxNestingDepth(depth).build())
+                .build();
+    }
+
+    @Test
     public void complexKeyWithNestedContainerIsWrittenInPlace() throws IOException
     {
         // The key's own containers get patched inside the parent's buffer, between the
