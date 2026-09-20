@@ -86,7 +86,9 @@ val testJavaVersion = providers.gradleProperty("testJavaVersion").map(JavaLangua
 
 tasks.test {
     useJUnitPlatform()
-    jvmArgs("-ea")
+    // A non-UTF-8 default charset, so that any conversion that forgets to name a charset
+    // corrupts non-ASCII text in the tests instead of only on users' Windows machines.
+    jvmArgs("-ea", "-Dfile.encoding=windows-1252")
     if (testJavaVersion.isPresent) {
         javaLauncher = javaToolchains.launcherFor { languageVersion = testJavaVersion }
     }
