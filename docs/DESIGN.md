@@ -155,22 +155,29 @@ not by this writer; see `jmh/results/2026-09-19-stage-b-own-wire-format.md`.
 
 `packString` needs the UTF-8 byte length before it can write the header, because the header
 comes first and its size depends on that length (fixstr for up to 31 bytes, str8 up to 255,
-str16 up to 65535, str32 above). Which path a string takes depends on its char count:
+str16 up to 65535, str32 above). Two private helpers do the work, both walking the chars of
+the `String` directly with `charAt` and allocating nothing:
+
+- `utf8Length(s)` returns how many bytes `s` takes in UTF-8. It writes nothing.
+- `encodeUtf8(s, buf, off)` writes the UTF-8 bytes of `s` into `buf` starting at `off` and
+  returns the index after the last byte written.
+
+Which path a string takes depends on its char count:
 
 ```mermaid
 flowchart TD
     S[packString s] --> L{s.length <= 31 chars?}
-    L -->|yes| SP[single pass: encodeUtf8 into buf at pos + 1]
-    SP --> B{bytes < 32?}
-    B -->|yes| F1[write fixstr header at pos]
-    B -->|no, str8 enabled| F2[shift payload right by 1<br/>write str8 header]
-    B -->|no, str8 disabled| F3[shift payload right by 2<br/>write str16 header]
-    L -->|no| C[utf8Length s: count bytes, allocate nothing]
-    C --> H[packRawStringHeader bytes]
-    H --> R{bytes fit in buffer?}
-    R -->|yes, or holding: grow| E[encodeUtf8 into buf]
-    R -->|no, not holding| FL[flushBuffer, then encodeUtf8 at 0]
-    R -->|larger than the whole buffer| G[String.getBytes, writePayload]
+    L -->|yes| SP[write the UTF-8 bytes at pos + 1,<br/>leaving 1 byte for the header<br/>encodeUtf8]
+    SP --> B{byte length < 32?}
+    B -->|yes| F1[fixstr: write the 1-byte header<br/>into the byte left free]
+    B -->|no, str8 enabled| F2[str8: move the bytes right by 1,<br/>write the 2-byte header]
+    B -->|no, str8 disabled| F3[str16: move the bytes right by 2,<br/>write the 3-byte header]
+    L -->|no| C[count the UTF-8 bytes<br/>utf8Length]
+    C --> H[write the header for that length<br/>packRawStringHeader]
+    H --> R{do the bytes fit<br/>after the header?}
+    R -->|yes, or a container is open so the buffer grows| E[write the UTF-8 bytes after the header<br/>encodeUtf8]
+    R -->|no, and no container is open| FL[flush the buffer to the stream,<br/>then write the bytes at 0<br/>encodeUtf8]
+    R -->|larger than the whole buffer| G[String.getBytes, then writePayload]
 ```
 
 **Short path, up to 31 chars.** 31 chars encode to at most 93 bytes, so the header is 1, 2
