@@ -783,8 +783,13 @@ public class MessagePackParser
         return false;
     }
 
+    /**
+     * Whether the current token is a property name that was an integer on the wire, of any
+     * width. A key deserializer can use it to turn the name back into a number.
+     */
     public boolean isCurrentFieldId()
     {
-        return this.type == Type.INT || this.type == Type.LONG;
+        return _currToken == JsonToken.PROPERTY_NAME
+                && (type == Type.INT || type == Type.LONG || type == Type.BIG_INT);
     }
 }

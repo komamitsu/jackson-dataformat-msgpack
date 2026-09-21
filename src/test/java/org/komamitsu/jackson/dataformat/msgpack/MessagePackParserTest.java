@@ -1554,6 +1554,39 @@ public class MessagePackParserTest
         }
     }
 
+    // isCurrentFieldId tells a KeyDeserializer that the key was an integer on the wire. It has
+    // to cover every integer width, and only the key token, not integer values.
+    @Test
+    public void isCurrentFieldIdCoversEveryIntegerKeyAndOnlyKeys() throws IOException
+    {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(baos)) {
+            packer.packMapHeader(4);
+            packer.packInt(1);
+            packer.packInt(10);
+            packer.packLong(1L << 40);
+            packer.packInt(20);
+            packer.packBigInteger(BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE));
+            packer.packInt(30);
+            packer.packString("s");
+            packer.packInt(40);
+        }
+        try (JsonParser p = factory.createParser(ObjectReadContext.empty(), baos.toByteArray())) {
+            MessagePackParser mp = (MessagePackParser) p;
+            assertEquals(JsonToken.START_OBJECT, p.nextToken());
+            String[] expectedNames = {"1", String.valueOf(1L << 40), "18446744073709551615", "s"};
+            boolean[] expectedIds = {true, true, true, false};
+            for (int i = 0; i < 4; i++) {
+                assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+                assertEquals(expectedNames[i], p.currentName());
+                assertEquals(expectedIds[i], mp.isCurrentFieldId(), expectedNames[i]);
+                assertEquals(JsonToken.VALUE_NUMBER_INT, p.nextToken());
+                assertFalse(mp.isCurrentFieldId(), "value after " + expectedNames[i]);
+            }
+            assertEquals(JsonToken.END_OBJECT, p.nextToken());
+        }
+    }
+
     @Test
     public void endOfInputClearsTheCurrentToken()
     {
