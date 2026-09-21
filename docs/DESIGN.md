@@ -314,5 +314,11 @@ fields above 999999999 are rejected instead of being folded into the seconds.
 - `PropertyNameCanonicalizationTest`, `NestedUsageTest` (re-entrant `ObjectMapper` use on one
   thread), `NonAsciiTextTest` (the test JVM runs with a non-UTF-8 default charset so any
   charset-less conversion shows up).
+- `MemoryLeakSoakTest` (`./gradlew soakTest -Psoak.seconds=120`, not part of `build`): four
+  threads share one factory for the given time, every iteration using property names never
+  seen before and values large enough to make the writer replace its pooled buffer, plus the
+  abnormal close paths. The post-GC heap at the end must not exceed the post-GC heap after
+  warm-up by more than 8 MB. Two minutes is about 2 million iterations and 50 million
+  distinct names; the heap stays flat.
 - Benchmarks: `./gradlew :jmh:jmh`, with `-PjmhIncludes=<regex>` and `-PjmhProfilers=gc`.
   Results and the reasoning behind each performance change are in `jmh/results/`.

@@ -85,7 +85,9 @@ tasks.withType<Javadoc>().configureEach {
 val testJavaVersion = providers.gradleProperty("testJavaVersion").map(JavaLanguageVersion::of)
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("soak")
+    }
     // A non-UTF-8 default charset, so that any conversion that forgets to name a charset
     // corrupts non-ASCII text in the tests instead of only on users' Windows machines.
     jvmArgs("-ea", "-Dfile.encoding=windows-1252")
@@ -96,6 +98,28 @@ tasks.test {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+}
+
+// Long-running checks that the normal build skips. ./gradlew soakTest -Psoak.seconds=120
+tasks.register<Test>("soakTest") {
+    group = "verification"
+    description = "Runs the soak tests (memory growth under sustained load)."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("soak")
+    }
+    val soakSeconds = providers.gradleProperty("soak.seconds").orElse("30")
+    jvmArgs("-ea", "-Xmx256m", "-Dsoak.seconds=${soakSeconds.get()}")
+    if (testJavaVersion.isPresent) {
+        javaLauncher = javaToolchains.launcherFor { languageVersion = testJavaVersion }
+    }
+    testLogging {
+        events("passed", "failed")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    outputs.upToDateWhen { false }
 }
 
 checkstyle {
