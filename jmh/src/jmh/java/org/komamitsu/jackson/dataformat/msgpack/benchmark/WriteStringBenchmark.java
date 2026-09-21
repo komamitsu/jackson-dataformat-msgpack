@@ -49,6 +49,9 @@ public class WriteStringBenchmark
 
     private final String shortAscii = "a typical property name";
     private final String shortNonAscii = "東京は日本の首都です";
+    // 20 chars, 60 bytes: within the single-pass char limit but needs a str8 header, so the
+    // payload is shifted after encoding.
+    private final String shortNonAsciiShifted = "東京は日本の首都です東京は日本の首都です";
     private final String longAscii = "Hello, World! This is a typical ASCII field value.";
     private final String longNonAscii = "東京は日本の首都です。This mixes CJK and ASCII.";
 
@@ -62,6 +65,12 @@ public class WriteStringBenchmark
     public int shortNonAscii() throws Exception
     {
         return write(shortNonAscii);
+    }
+
+    @Benchmark
+    public int shortNonAsciiShifted() throws Exception
+    {
+        return write(shortNonAsciiShifted);
     }
 
     @Benchmark

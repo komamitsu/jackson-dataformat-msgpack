@@ -224,7 +224,11 @@ step 2c: str16 (str8 disabled), arraycopy the 40 bytes from pos+1 to pos+3, then
 
 This is the path every property name and most values take. The `arraycopy` happens only
 when a string of at most 31 chars encodes to 32 bytes or more, which needs non-ASCII text of
-11 chars or more, and it moves under 100 bytes.
+11 chars or more, and it moves under 100 bytes. Measured with `WriteStringBenchmark`, the
+single pass is still ahead of the two-pass path even when the copy runs: 20 CJK chars (60
+bytes, str8 shift) write at 49k ops/s against 41k for two passes, and 10 CJK chars (no shift)
+at 95k against 86k. Counting the bytes first would cost a full extra pass over every string
+to save an occasional small memmove.
 `jmh/results/2026-09-21-single-pass-short-strings.md` shows the effect.
 
 **Long path, 32 chars or more.** `utf8Length` walks the chars once and counts bytes without
