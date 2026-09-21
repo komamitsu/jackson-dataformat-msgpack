@@ -1687,6 +1687,40 @@ public class MessagePackGeneratorTest
         assertArrayEquals(new byte[] {(byte) 0x91, 7}, out.toByteArray());
     }
 
+    // An unrepresentable BigInteger or BigDecimal must be rejected before it is counted, for
+    // the same reason as an invalid slice.
+    @Test
+    public void unrepresentableNumberLeavesNoTrace()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out)) {
+            gen.writeStartArray();
+            IllegalArgumentException tooBig = assertThrows(IllegalArgumentException.class,
+                    () -> gen.writeNumber(BigInteger.ONE.shiftLeft(64)));
+            IllegalArgumentException tooSmall = assertThrows(IllegalArgumentException.class,
+                    () -> gen.writeNumber(BigInteger.valueOf(Long.MIN_VALUE).subtract(BigInteger.ONE)));
+            assertTrue(tooBig.getMessage().contains("-2^63") && tooBig.getMessage().contains("2^64"), tooBig.getMessage());
+            assertEquals(tooBig.getMessage().replaceAll("[-0-9]+$", ""), tooSmall.getMessage().replaceAll("[-0-9]+$", ""));
+            assertThrows(IllegalArgumentException.class, () -> gen.writeNumber(new BigDecimal("1234567890.98765432100")));
+            gen.writeNumber(7);
+            gen.writeEndArray();
+        }
+        assertArrayEquals(new byte[] {(byte) 0x91, 7}, out.toByteArray());
+    }
+
+    @Test
+    public void writingAfterCloseIsReportedNotAnNpe()
+    {
+        JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), new ByteArrayOutputStream());
+        gen.writeNumber(1);
+        gen.close();
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class, () -> gen.writeNumber(2));
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class, () -> gen.writeString("s"));
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class, gen::writeStartArray);
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class, gen::writeStartObject);
+        assertThrows(tools.jackson.core.exc.StreamWriteException.class, () -> gen.writeName("n"));
+    }
+
     // Jackson's contract: a null argument to these is written as a null token.
     @Test
     public void nullArgumentsAreWrittenAsNil()

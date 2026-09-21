@@ -251,39 +251,63 @@ public class MessagePackGenerator
         writer.writePayload(extData);
     }
 
-    private void packBigDecimal(BigDecimal decimal)
-            throws IOException
+    private void packBigDecimal(BigDecimal decimal) throws IOException
     {
-        boolean failedToPackAsBI = false;
-        try {
-            //Check to see if this BigDecimal can be converted to BigInteger
-            BigInteger integer = decimal.toBigIntegerExact();
-            writer.packBigInteger(integer);
-        }
-        catch (ArithmeticException | IllegalArgumentException e) {
-            failedToPackAsBI = true;
-        }
+        packNumber(representable(decimal));
+    }
 
-        if (failedToPackAsBI) {
-            double doubleValue = decimal.doubleValue();
-            //Check to make sure this BigDecimal can be represented as a double
-            if (Double.isInfinite(doubleValue) || decimal.compareTo(BigDecimal.valueOf(doubleValue)) != 0) {
-                throw new IllegalArgumentException("MessagePack cannot serialize a BigDecimal that can't be represented as double. " + decimal);
+    // How a BigDecimal goes on the wire: as an integer if it has no fraction and fits one,
+    // else as a double if that is exact. Decided before anything is written or counted, so
+    // an unrepresentable value leaves no trace.
+    private static Number representable(BigDecimal decimal)
+    {
+        try {
+            BigInteger integer = decimal.toBigIntegerExact();
+            if (MessagePackWriter.fitsInteger(integer)) {
+                return integer;
             }
-            writer.packDouble(doubleValue);
+        }
+        catch (ArithmeticException notIntegral) {
+            // Falls through to the double check.
+        }
+        double doubleValue = decimal.doubleValue();
+        if (Double.isInfinite(doubleValue) || decimal.compareTo(BigDecimal.valueOf(doubleValue)) != 0) {
+            throw new IllegalArgumentException("MessagePack cannot serialize a BigDecimal that can't be represented as double. " + decimal);
+        }
+        return doubleValue;
+    }
+
+    private void packNumber(Number encoding) throws IOException
+    {
+        if (encoding instanceof BigInteger) {
+            writer.packBigInteger((BigInteger) encoding);
+        }
+        else {
+            writer.packDouble(encoding.doubleValue());
         }
     }
 
     private void verifyValueWrite()
     {
+        checkNotClosed();
         if (!writeContext.writeValue()) {
             _reportError("Cannot write value: expecting a property name in Object context");
+        }
+    }
+
+    // Every write goes through here or through a name write. After close() the writer has
+    // given up its buffer, so a write must fail with a clear error rather than an NPE.
+    private void checkNotClosed() throws JacksonException
+    {
+        if (_closed) {
+            _reportError("Generator is closed");
         }
     }
 
     @Override
     public JsonGenerator writePropertyId(long id) throws JacksonException
     {
+        checkNotClosed();
         if (this.supportIntegerKeys) {
             if (!writeContext.writeName(String.valueOf(id))) {
                 _reportError("Can not write a property id, expecting a value");
@@ -310,6 +334,7 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeName(String name) throws JacksonException
     {
+        checkNotClosed();
         if (!writeContext.writeName(name)) {
             _reportError("Can not write a property name, expecting a value");
         }
@@ -325,6 +350,7 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeName(SerializableString name) throws JacksonException
     {
+        checkNotClosed();
         if (name instanceof MessagePackSerializedString) {
             if (!writeContext.writeName(name.getValue())) {
                 _reportError("Can not write a property name, expecting a value");
@@ -496,6 +522,10 @@ public class MessagePackGenerator
         if (v == null) {
             return writeNull();
         }
+        // Rejected before the value is counted, so the stream stays consistent.
+        if (!MessagePackWriter.fitsInteger(v)) {
+            throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + v);
+        }
         verifyValueWrite();
         try {
             writer.packBigInteger(v);
@@ -538,9 +568,10 @@ public class MessagePackGenerator
         if (dec == null) {
             return writeNull();
         }
+        Number encoding = representable(dec);
         verifyValueWrite();
         try {
-            packBigDecimal(dec);
+            packNumber(encoding);
         }
         catch (IOException e) {
             throw _wrapIOFailure(e);
@@ -745,6 +776,7 @@ public class MessagePackGenerator
     @Override
     protected void _verifyValueWrite(String typeMsg) throws JacksonException
     {
+        checkNotClosed();
         if (!writeContext.writeValue()) {
             _reportError("Cannot " + typeMsg + ", expecting a property name");
         }

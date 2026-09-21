@@ -117,6 +117,14 @@ final class MessagePackWriter
         }
     }
 
+    /**
+     * Whether the value fits a MessagePack integer: int64 or uint64, so -2^63 to 2^64-1.
+     */
+    static boolean fitsInteger(BigInteger bi)
+    {
+        return bi.bitLength() <= 63 || (bi.bitLength() == 64 && bi.signum() == 1);
+    }
+
     void packBigInteger(BigInteger bi) throws IOException
     {
         if (bi.bitLength() <= 63) {
@@ -126,7 +134,7 @@ final class MessagePackWriter
             writeByteAndLong(Code.UINT64, bi.longValue());
         }
         else {
-            throw new IllegalArgumentException("MessagePack cannot serialize BigInteger larger than 2^64-1");
+            throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + bi);
         }
     }
 
