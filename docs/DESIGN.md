@@ -181,23 +181,44 @@ flowchart TD
 ```
 
 **Short path, up to 31 chars.** 31 chars encode to at most 93 bytes, so the header is 1, 2
-or 3 bytes and `ensure(3 + 3 * charLen)` makes room for the worst case. The payload is
-written first, at `pos + 1`, as if the header were a one-byte fixstr:
+or 3 bytes and `ensure(3 + 3 * charLen)` makes room for the worst case. The bytes of the
+string are written before the header is known, starting one byte after `pos`. That one byte
+is skipped on purpose: it is where the header will go if the string turns out to be a fixstr,
+the common case. With `"abc"` as the example (`pos` is where the value starts in the buffer):
 
 ```text
-pos                                        end
- |  h  |  payload (byteLen bytes) ...........|          reserved 1 byte for the header
+step 1: encodeUtf8(s, buf, pos + 1)         buf[pos] is skipped, not yet written
+
+        index:   pos    pos+1  pos+2  pos+3
+                +------+------+------+------+
+                |  ??  |  a   |  b   |  c   |     end = pos + 4, byteLen = 3
+                +------+------+------+------+
+
+step 2a: byteLen < 32, so the skipped byte becomes the fixstr header (0xa0 | byteLen)
+
+                +------+------+------+------+
+                | 0xa3 |  a   |  b   |  c   |     pos = end
+                +------+------+------+------+
 ```
 
-If `byteLen` is under 32 the guess was right and the fixstr header is written into the
-reserved byte. Otherwise the payload is moved right to make room for the real header:
+If `byteLen` is 32 or more the header needs 2 bytes (str8) or, with str8 disabled, 3 bytes
+(str16). The string bytes are moved right by the difference and the header written in front,
+here for a 40-byte string:
 
 ```text
-str8 (byteLen 32..255):
- | 0xd9 | len |  payload ......................|         shifted by 1
+step 2b: str8, shift by 1
 
-str16 (str8 disabled):
- | 0xda | len hi | len lo |  payload ..........|         shifted by 2
+        index:   pos    pos+1  pos+2       pos+41
+                +------+------+------+-----+------+
+                | 0xd9 |  40  |  b0  | ... |  b39 |     pos = end + 1
+                +------+------+------+-----+------+
+
+step 2c: str16 (str8 disabled), shift by 2
+
+        index:   pos    pos+1  pos+2  pos+3       pos+42
+                +------+------+------+------+-----+------+
+                | 0xda | 0x00 |  40  |  b0  | ... |  b39 |     pos = end + 2
+                +------+------+------+------+-----+------+
 ```
 
 This is the path every property name and most values take; a shift happens only for
