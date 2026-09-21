@@ -87,8 +87,8 @@ sequenceDiagram
         Note over W: buffer grows if full, never flushes
         Gen->>Ctx: writeValue() (count++)
     end
-    Gen->>W: closeContainer(map, h, reserved, count)
-    Note over W: needed = headerLength(count)<br/>if needed != reserved: shift elements<br/>write final header at h<br/>holdDepth--
+    Gen->>W: closeContainer(map, h, reservedLength, count)
+    Note over W: finalHeaderLength = headerLength(count)<br/>if finalHeaderLength != reservedLength: shift elements by the difference<br/>write final header at h<br/>holdDepth--
     Gen->>Ctx: pop to parent
     Note over W: holdDepth == 0 again: next ensure() may flush
 ```
