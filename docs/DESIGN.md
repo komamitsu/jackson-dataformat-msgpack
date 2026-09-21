@@ -153,17 +153,62 @@ not by this writer; see `jmh/results/2026-09-19-stage-b-own-wire-format.md`.
 
 ### 2.4 Strings
 
-`packString` needs the UTF-8 byte length before it can write the header. Two paths:
+`packString` needs the UTF-8 byte length before it can write the header, because the header
+comes first and its size depends on that length (fixstr for up to 31 bytes, str8 up to 255,
+str16 up to 65535, str32 above). Which path a string takes depends on its char count:
 
-- Up to 31 chars: encode in one pass directly after a one-byte fixstr header. 31 chars are at
-  most 93 bytes, so if the result is 32 bytes or more the payload is shifted by one (str8) or
-  two (str16, when str8 is disabled) bytes. This is the path every property name and most
-  values take. `jmh/results/2026-09-21-single-pass-short-strings.md` shows the effect.
-- Longer: `utf8Length` counts the bytes, the header is written, `encodeUtf8` writes the bytes.
-  A string larger than the whole buffer falls back to `String.getBytes`.
+```mermaid
+flowchart TD
+    S[packString s] --> L{s.length <= 31 chars?}
+    L -->|yes| SP[single pass: encodeUtf8 into buf at pos + 1]
+    SP --> B{bytes < 32?}
+    B -->|yes| F1[write fixstr header at pos]
+    B -->|no, str8 enabled| F2[shift payload right by 1<br/>write str8 header]
+    B -->|no, str8 disabled| F3[shift payload right by 2<br/>write str16 header]
+    L -->|no| C[utf8Length s: count bytes, allocate nothing]
+    C --> H[packRawStringHeader bytes]
+    H --> R{bytes fit in buffer?}
+    R -->|yes, or holding: grow| E[encodeUtf8 into buf]
+    R -->|no, not holding| FL[flushBuffer, then encodeUtf8 at 0]
+    R -->|larger than the whole buffer| G[String.getBytes, writePayload]
+```
 
-`utf8Length` and `encodeUtf8` must agree with each other and with `String.getBytes(UTF_8)`:
-an unpaired surrogate counts as one byte and is written as `?`.
+**Short path, up to 31 chars.** 31 chars encode to at most 93 bytes, so the header is 1, 2
+or 3 bytes and `ensure(3 + 3 * charLen)` makes room for the worst case. The payload is
+written first, at `pos + 1`, as if the header were a one-byte fixstr:
+
+```text
+pos                                        end
+ |  h  |  payload (byteLen bytes) ...........|          reserved 1 byte for the header
+```
+
+If `byteLen` is under 32 the guess was right and the fixstr header is written into the
+reserved byte. Otherwise the payload is moved right to make room for the real header:
+
+```text
+str8 (byteLen 32..255):
+ | 0xd9 | len |  payload ......................|         shifted by 1
+
+str16 (str8 disabled):
+ | 0xda | len hi | len lo |  payload ..........|         shifted by 2
+```
+
+This is the path every property name and most values take; a shift happens only for
+non-ASCII text of 11 chars or more, and costs one `arraycopy` of under 100 bytes.
+`jmh/results/2026-09-21-single-pass-short-strings.md` shows the effect.
+
+**Long path, 32 chars or more.** `utf8Length` walks the chars once and counts bytes without
+allocating, the header is written, then `encodeUtf8` walks the chars again and writes the
+bytes straight into the buffer. Two passes but no intermediate array. A string larger than
+the whole buffer is the one case that goes through `String.getBytes`.
+
+Neither path allocates per character: `charAt` returns a primitive `char`, and the
+`WriteStringBenchmark` gc profile shows 280 bytes per operation for 500 strings, which is the
+generator itself.
+
+`utf8Length` and `encodeUtf8` must agree with each other and with `String.getBytes(UTF_8)`,
+or the header would not match the bytes: an unpaired surrogate counts as one byte and is
+written as `?`.
 
 ### 2.5 Close semantics
 
