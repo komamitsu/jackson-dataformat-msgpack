@@ -38,6 +38,8 @@ final class MessagePackWriter
 {
     private static final int NANOS_PER_SECOND = 1_000_000_000;
     private static final int MAX_CONTAINER_HEADER = 5;
+    // Longest string, in chars, that packString encodes in a single pass. See packShortString.
+    private static final int SHORT_STRING_CHARS = 31;
 
     private final IOContext ioContext;
     private final OutputStream out;
@@ -141,6 +143,11 @@ final class MessagePackWriter
 
     void packString(String s) throws IOException
     {
+        int charLen = s.length();
+        if (charLen <= SHORT_STRING_CHARS) {
+            packShortString(s, charLen);
+            return;
+        }
         int byteLen = utf8Length(s);
         packRawStringHeader(byteLen);
         if (byteLen <= buf.length - pos) {
@@ -156,6 +163,34 @@ final class MessagePackWriter
         }
         else {
             writePayload(s.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    // A short string is encoded in one pass, straight after a one-byte fixstr header. Only if
+    // it turns out to need a longer header (at most 3 bytes, since 31 chars encode to at most
+    // 93 bytes) is the payload shifted to make room.
+    private void packShortString(String s, int charLen) throws IOException
+    {
+        ensure(3 + 3 * charLen);
+        int start = pos + 1;
+        int end = encodeUtf8(s, buf, start);
+        int byteLen = end - start;
+        if (byteLen < (1 << 5)) {
+            buf[pos] = (byte) (Code.FIXSTR_PREFIX | byteLen);
+            pos = end;
+        }
+        else if (str8FormatSupport) {
+            System.arraycopy(buf, start, buf, start + 1, byteLen);
+            buf[pos] = Code.STR8;
+            buf[pos + 1] = (byte) byteLen;
+            pos = end + 1;
+        }
+        else {
+            System.arraycopy(buf, start, buf, start + 2, byteLen);
+            buf[pos] = Code.STR16;
+            buf[pos + 1] = (byte) (byteLen >> 8);
+            buf[pos + 2] = (byte) byteLen;
+            pos = end + 2;
         }
     }
 
