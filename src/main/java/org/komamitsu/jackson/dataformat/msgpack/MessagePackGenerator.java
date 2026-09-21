@@ -34,6 +34,7 @@ import java.io.Reader;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 /**
  * Encodes each write call straight into the {@link MessagePackWriter}. Container headers
@@ -404,6 +405,9 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeUTF8String(byte[] text, int offset, int length) throws JacksonException
     {
+        // Checked before the header is written or the value counted, so a bad slice leaves
+        // the stream as it was.
+        Objects.checkFromIndexSize(offset, length, text.length);
         verifyValueWrite();
         try {
             writer.packRawStringHeader(length);
@@ -442,6 +446,7 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeBinary(Base64Variant b64variant, byte[] data, int offset, int len) throws JacksonException
     {
+        Objects.checkFromIndexSize(offset, len, data.length);
         verifyValueWrite();
         try {
             writer.packBinaryHeader(len);

@@ -1667,6 +1667,26 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // A slice outside the array must be rejected before anything is written or counted, so a
+    // caller that catches the exception can carry on with a consistent stream.
+    @Test
+    public void invalidSliceLeavesNoTrace()
+    {
+        byte[] three = {1, 2, 3};
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out)) {
+            gen.writeStartArray();
+            assertThrows(IndexOutOfBoundsException.class, () -> gen.writeUTF8String(three, 0, 100));
+            assertThrows(IndexOutOfBoundsException.class, () -> gen.writeUTF8String(three, 2, 2));
+            assertThrows(IndexOutOfBoundsException.class, () -> gen.writeUTF8String(three, -1, 1));
+            assertThrows(IndexOutOfBoundsException.class, () -> gen.writeBinary(three, 0, 100));
+            assertThrows(IndexOutOfBoundsException.class, () -> gen.writeBinary(three, 1, -1));
+            gen.writeNumber(7);
+            gen.writeEndArray();
+        }
+        assertArrayEquals(new byte[] {(byte) 0x91, 7}, out.toByteArray());
+    }
+
     // Jackson's contract: a null argument to these is written as a null token.
     @Test
     public void nullArgumentsAreWrittenAsNil()
