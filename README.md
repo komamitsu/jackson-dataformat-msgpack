@@ -228,7 +228,7 @@ ObjectMapper objectMapper = MessagePackMapper.builder().addModule(module).build(
 
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
-`jackson-dataformat-msgpack` represents BigDecimal values as float type in MessagePack format by default for backward compatibility. But the default behavior could fail when handling too large value for `double` type. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.
+By default, for backward compatibility, a BigDecimal is written as a MessagePack integer if it has no fractional part, and otherwise as a float64 if that represents it exactly. A value that fits neither (too many digits for a double, or a magnitude beyond 64-bit integers) fails with `IllegalArgumentException`. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.
 
 ```java
 ObjectMapper objectMapper = MessagePackMapper.builder().handleBigIntegerAndBigDecimalAsString().build();
