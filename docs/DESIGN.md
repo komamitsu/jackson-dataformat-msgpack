@@ -100,9 +100,30 @@ close only patches it if the hint was wrong. Hints come from databind for collec
 known size and are used but not trusted: databind passes -1 when views or filters are
 involved, and callers can be wrong.
 
-Nested containers just nest: each level records its own header offset in its write context,
-and `holdDepth` counts open levels. Everything from the outermost open container's header
-onward is in the buffer until that container closes.
+### 2.2.1 Where the header is
+
+`openContainer` returns the buffer offset at which it reserved the header, and the generator
+stores it in the container's `MessagePackWriteContext` together with the number of bytes
+reserved (`setHeader(offset, reservedLength)`). The count itself is not stored anywhere in
+the buffer until close; the context counts elements as they are written
+(`getEntryCount()`), and `closeContainer` gets all three from the context.
+
+The offset is an index into the writer's buffer, and it stays valid for the whole time the
+container is open because:
+
+- the buffer is never flushed while `holdDepth > 0`, so bytes never move to the stream and
+  offsets are never reset to 0;
+- `grow()` copies the buffer from index 0 into the larger array, so every offset is the same
+  in the new buffer;
+- closing an inner container only shifts bytes *after* its own header, and every enclosing
+  container's header lies before it, so outer offsets are unaffected;
+- a nested generator for a complex map key shares the same writer and the same buffer, so
+  its offsets are in the same index space.
+
+Nested containers therefore just nest: each level's context holds its own offset, and
+`holdDepth` counts open levels. Everything from the outermost open container's header
+onward is in the buffer until that container closes; then `holdDepth` drops to 0 and the
+next `ensure()` may flush.
 
 ### 2.3 Buffer ownership
 
