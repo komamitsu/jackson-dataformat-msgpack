@@ -202,18 +202,19 @@ step 2a: byteLen < 32, so the skipped byte becomes the fixstr header (0xa0 | byt
 ```
 
 If `byteLen` is 32 or more the header needs 2 bytes (str8) or, with str8 disabled, 3 bytes
-(str16). The string bytes are moved right by the difference and the header written in front,
-here for a 40-byte string:
+(str16). The string bytes are then moved right by 1 or 2 positions with an overlapping
+in-place `System.arraycopy(buf, start, buf, start + shift, byteLen)`, and the header is
+written in front. Here for a 40-byte string:
 
 ```text
-step 2b: str8, shift by 1
+step 2b: str8, arraycopy the 40 bytes from pos+1 to pos+2, then write the header
 
         index:   pos    pos+1  pos+2       pos+41
                 +------+------+------+-----+------+
                 | 0xd9 |  40  |  b0  | ... |  b39 |     pos = end + 1
                 +------+------+------+-----+------+
 
-step 2c: str16 (str8 disabled), shift by 2
+step 2c: str16 (str8 disabled), arraycopy the 40 bytes from pos+1 to pos+3, then write the header
 
         index:   pos    pos+1  pos+2  pos+3       pos+42
                 +------+------+------+------+-----+------+
@@ -221,8 +222,9 @@ step 2c: str16 (str8 disabled), shift by 2
                 +------+------+------+------+-----+------+
 ```
 
-This is the path every property name and most values take; a shift happens only for
-non-ASCII text of 11 chars or more, and costs one `arraycopy` of under 100 bytes.
+This is the path every property name and most values take. The `arraycopy` happens only
+when a string of at most 31 chars encodes to 32 bytes or more, which needs non-ASCII text of
+11 chars or more, and it moves under 100 bytes.
 `jmh/results/2026-09-21-single-pass-short-strings.md` shows the effect.
 
 **Long path, 32 chars or more.** `utf8Length` walks the chars once and counts bytes without
