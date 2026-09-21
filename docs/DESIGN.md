@@ -162,29 +162,31 @@ the `String` directly with `charAt` and allocating nothing:
 - `encodeUtf8(s, buf, off)` writes the UTF-8 bytes of `s` into `buf` starting at `off` and
   returns the index after the last byte written.
 
-Which path a string takes depends on its char count:
+Counting the bytes first would mean walking every char twice. Instead, the char count is
+used as a lower bound: a char is at least one byte, so a string of `n` chars needs at least
+the header that `n` bytes would need. That many bytes are left free, the string is encoded
+after them, and only if non-ASCII text pushed the byte length over the next header boundary
+is the payload moved to make room.
 
 ```mermaid
 flowchart TD
-    S[packString s] --> L{s.length <= 31 chars?}
-    L -->|yes| SP[write the UTF-8 bytes at pos + 1,<br/>leaving 1 byte for the header<br/>encodeUtf8]
-    SP --> B{byte length < 32?}
-    B -->|yes| F1[fixstr: write the 1-byte header<br/>into the byte left free]
-    B -->|no, str8 enabled| F2[str8: move the bytes right by 1,<br/>write the 2-byte header]
-    B -->|no, str8 disabled| F3[str16: move the bytes right by 2,<br/>write the 3-byte header]
-    L -->|no| C[count the UTF-8 bytes<br/>utf8Length]
-    C --> H[write the header for that length<br/>packRawStringHeader]
-    H --> R{do the bytes fit<br/>after the header?}
-    R -->|yes, or a container is open so the buffer grows| E[write the UTF-8 bytes after the header<br/>encodeUtf8]
-    R -->|no, and no container is open| FL[flush the buffer to the stream,<br/>then write the bytes at 0<br/>encodeUtf8]
-    R -->|larger than the whole buffer| G[String.getBytes, then writePayload]
+    S[packString s] --> W{3 * s.length + 5<br/>fits in the buffer?}
+    W -->|yes| E0[ensure that much room:<br/>flush first if no container is open,<br/>grow if one is]
+    E0 --> R[reserved = header size for s.length chars<br/>1, 2, 3 or 5 bytes]
+    R --> E[write the UTF-8 bytes at pos + reserved<br/>encodeUtf8]
+    E --> N{header size for the<br/>actual byte length == reserved?}
+    N -->|yes, always for ASCII| H1[write the header into the reserved bytes]
+    N -->|no| MV[arraycopy the bytes right<br/>by the difference]
+    MV --> H2[write the larger header in front]
+    W -->|no| C[count the UTF-8 bytes<br/>utf8Length]
+    C --> HH[write the header for that length<br/>packRawStringHeader]
+    HH --> R2{a container is open?}
+    R2 -->|yes| G[grow the buffer,<br/>write the bytes<br/>encodeUtf8]
+    R2 -->|no| SB[String.getBytes, then writePayload]
 ```
 
-**Short path, up to 31 chars.** 31 chars encode to at most 93 bytes, so the header is 1, 2
-or 3 bytes and `ensure(3 + 3 * charLen)` makes room for the worst case. The bytes of the
-string are written before the header is known, starting one byte after `pos`. That one byte
-is skipped on purpose: it is where the header will go if the string turns out to be a fixstr,
-the common case. With `"abc"` as the example (`pos` is where the value starts in the buffer):
+**In-place path.** With `"abc"` as the example (`pos` is where the value starts in the buffer):
+3 chars need at least a fixstr header, so 1 byte is reserved.
 
 ```text
 step 1: encodeUtf8(s, buf, pos + 1)         buf[pos] is skipped, not yet written
@@ -194,51 +196,42 @@ step 1: encodeUtf8(s, buf, pos + 1)         buf[pos] is skipped, not yet written
                 |  ??  |  a   |  b   |  c   |     end = pos + 4, byteLen = 3
                 +------+------+------+------+
 
-step 2a: byteLen < 32, so the skipped byte becomes the fixstr header (0xa0 | byteLen)
+step 2a: 3 bytes still need a fixstr header, so it goes into the reserved byte (0xa0 | 3)
 
                 +------+------+------+------+
                 | 0xa3 |  a   |  b   |  c   |     pos = end
                 +------+------+------+------+
 ```
 
-If `byteLen` is 32 or more the header needs 2 bytes (str8) or, with str8 disabled, 3 bytes
-(str16). The string bytes are then moved right by 1 or 2 positions with an overlapping
-in-place `System.arraycopy(buf, start, buf, start + shift, byteLen)`, and the header is
-written in front. Here for a 40-byte string:
+For 20 CJK chars the reservation is again 1 byte (20 chars could be a fixstr) but the
+result is 60 bytes, which needs str8. The bytes are moved right by one with an overlapping
+in-place `System.arraycopy(buf, start, buf, start + 1, byteLen)` and the header is written
+in front:
 
 ```text
-step 2b: str8, arraycopy the 40 bytes from pos+1 to pos+2, then write the header
+step 2b: arraycopy the 60 bytes from pos+1 to pos+2, then write the 2-byte header
 
-        index:   pos    pos+1  pos+2       pos+41
+        index:   pos    pos+1  pos+2       pos+61
                 +------+------+------+-----+------+
-                | 0xd9 |  40  |  b0  | ... |  b39 |     pos = end + 1
+                | 0xd9 |  60  |  b0  | ... |  b59 |     pos = end + 1
                 +------+------+------+-----+------+
-
-step 2c: str16 (str8 disabled), arraycopy the 40 bytes from pos+1 to pos+3, then write the header
-
-        index:   pos    pos+1  pos+2  pos+3       pos+42
-                +------+------+------+------+-----+------+
-                | 0xda | 0x00 |  40  |  b0  | ... |  b39 |     pos = end + 2
-                +------+------+------+------+-----+------+
 ```
 
-This is the path every property name and most values take. The `arraycopy` happens only
-when a string of at most 31 chars encodes to 32 bytes or more, which needs non-ASCII text of
-11 chars or more, and it moves under 100 bytes. Measured with `WriteStringBenchmark`, the
-single pass is still ahead of the two-pass path even when the copy runs: 20 CJK chars (60
-bytes, str8 shift) write at 49k ops/s against 41k for two passes, and 10 CJK chars (no shift)
-at 95k against 86k. Counting the bytes first would cost a full extra pass over every string
-to save an occasional small memmove.
-`jmh/results/2026-09-21-single-pass-short-strings.md` shows the effect.
+The same happens at the str8/str16 boundary (over 255 bytes from at most 255 chars) and, in
+principle, at str16/str32, though a string that long only fits a buffer already grown by an
+open container. ASCII text never moves, because its byte length equals its char count.
 
-**Long path, 32 chars or more.** `utf8Length` walks the chars once and counts bytes without
-allocating, the header is written, then `encodeUtf8` walks the chars again and writes the
-bytes straight into the buffer. Two passes but no intermediate array. A string larger than
-the whole buffer is the one case that goes through `String.getBytes`.
+**Two-pass path.** A string whose worst case (3 bytes per char plus the largest header) does
+not fit in the buffer, about 2,660 chars with the default 8000-byte buffer, is counted first
+with `utf8Length` and written after the header: into the grown buffer if a container is
+open, else through `String.getBytes` and `writePayload`, which streams in buffer-sized
+pieces.
 
 Neither path allocates per character: `charAt` returns a primitive `char`, and the
 `WriteStringBenchmark` gc profile shows 280 bytes per operation for 500 strings, which is the
-generator itself.
+generator itself. Measured against always counting first, the in-place path is ahead in
+every case, including when the copy runs: 20 CJK chars (str8 shift) 51k against 41k ops/s,
+50 ASCII chars 96k against 68k, 44 mixed chars 60k against 37k.
 
 `utf8Length` and `encodeUtf8` must agree with each other and with `String.getBytes(UTF_8)`,
 or the header would not match the bytes: an unpaired surrogate counts as one byte and is

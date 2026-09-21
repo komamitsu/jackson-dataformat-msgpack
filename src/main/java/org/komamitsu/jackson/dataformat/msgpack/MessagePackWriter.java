@@ -38,8 +38,7 @@ final class MessagePackWriter
 {
     private static final int NANOS_PER_SECOND = 1_000_000_000;
     private static final int MAX_CONTAINER_HEADER = 5;
-    // Longest string, in chars, that packString encodes in a single pass. See packShortString.
-    private static final int SHORT_STRING_CHARS = 31;
+    private static final int MAX_STRING_HEADER = 5;
 
     private final IOContext ioContext;
     private final OutputStream out;
@@ -144,53 +143,77 @@ final class MessagePackWriter
     void packString(String s) throws IOException
     {
         int charLen = s.length();
-        if (charLen <= SHORT_STRING_CHARS) {
-            packShortString(s, charLen);
+        // Worst case: 3 bytes per char plus the largest header.
+        int worstCase = 3 * charLen + MAX_STRING_HEADER;
+        if (worstCase <= buf.length) {
+            ensure(worstCase);
+            packStringInPlace(s, charLen);
             return;
         }
+        // Too long to encode into the buffer in one go: count first, then write.
         int byteLen = utf8Length(s);
         packRawStringHeader(byteLen);
-        if (byteLen <= buf.length - pos) {
-            pos = encodeUtf8(s, buf, pos);
-        }
-        else if (holdDepth > 0) {
+        if (holdDepth > 0) {
             grow(pos + byteLen);
             pos = encodeUtf8(s, buf, pos);
-        }
-        else if (byteLen <= buf.length) {
-            flushBuffer();
-            pos = encodeUtf8(s, buf, 0);
         }
         else {
             writePayload(s.getBytes(StandardCharsets.UTF_8));
         }
     }
 
-    // A short string is encoded in one pass, straight after a one-byte fixstr header. Only if
-    // it turns out to need a longer header (at most 3 bytes, since 31 chars encode to at most
-    // 93 bytes) is the payload shifted to make room.
-    private void packShortString(String s, int charLen) throws IOException
+    // Encodes in a single pass, without counting the bytes first. A char is at least one
+    // byte, so the char count gives the smallest header the string can need. That many bytes
+    // are left free, the string is encoded after them, and only if non-ASCII text pushed the
+    // byte length over the next header boundary is the payload moved to make room.
+    private void packStringInPlace(String s, int charLen)
     {
-        ensure(3 + 3 * charLen);
-        int start = pos + 1;
+        int reserved = stringHeaderLength(charLen);
+        int start = pos + reserved;
         int end = encodeUtf8(s, buf, start);
         int byteLen = end - start;
-        if (byteLen < (1 << 5)) {
-            buf[pos] = (byte) (Code.FIXSTR_PREFIX | byteLen);
-            pos = end;
+        int needed = stringHeaderLength(byteLen);
+        if (needed != reserved) {
+            System.arraycopy(buf, start, buf, pos + needed, byteLen);
         }
-        else if (str8FormatSupport) {
-            System.arraycopy(buf, start, buf, start + 1, byteLen);
-            buf[pos] = Code.STR8;
-            buf[pos + 1] = (byte) byteLen;
-            pos = end + 1;
+        putStringHeader(buf, pos, byteLen);
+        pos += needed + byteLen;
+    }
+
+    private int stringHeaderLength(int len)
+    {
+        if (len < (1 << 5)) {
+            return 1;
+        }
+        if (str8FormatSupport && len < (1 << 8)) {
+            return 2;
+        }
+        if (len < (1 << 16)) {
+            return 3;
+        }
+        return 5;
+    }
+
+    private void putStringHeader(byte[] b, int off, int len)
+    {
+        if (len < (1 << 5)) {
+            b[off] = (byte) (Code.FIXSTR_PREFIX | len);
+        }
+        else if (str8FormatSupport && len < (1 << 8)) {
+            b[off] = Code.STR8;
+            b[off + 1] = (byte) len;
+        }
+        else if (len < (1 << 16)) {
+            b[off] = Code.STR16;
+            b[off + 1] = (byte) (len >> 8);
+            b[off + 2] = (byte) len;
         }
         else {
-            System.arraycopy(buf, start, buf, start + 2, byteLen);
-            buf[pos] = Code.STR16;
-            buf[pos + 1] = (byte) (byteLen >> 8);
-            buf[pos + 2] = (byte) byteLen;
-            pos = end + 2;
+            b[off] = Code.STR32;
+            b[off + 1] = (byte) (len >> 24);
+            b[off + 2] = (byte) (len >> 16);
+            b[off + 3] = (byte) (len >> 8);
+            b[off + 4] = (byte) len;
         }
     }
 
