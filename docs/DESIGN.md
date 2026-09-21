@@ -127,15 +127,20 @@ next `ensure()` may flush.
 
 ### 2.3 Buffer ownership
 
+Transitions are labelled "event, guard / action".
+
 ```mermaid
 stateDiagram-v2
-    [*] --> Borrowed: allocWriteEncodingBuffer() from IOContext
-    Borrowed --> Borrowed: full and holdDepth == 0 → flushBuffer(), reuse
-    Borrowed --> Owned: full and holdDepth > 0 → grow(): new byte[], copy,<br/>releaseWriteEncodingBuffer(old)
-    Owned --> Owned: grow() again if needed (double)
-    Borrowed --> [*]: release() returns buffer to IOContext
-    Owned --> [*]: release() drops buffer
+    [*] --> Borrowed: writer created / allocWriteEncodingBuffer()
+    Borrowed --> Borrowed: buffer full, holdDepth == 0 / flushBuffer()
+    Borrowed --> Owned: buffer full, holdDepth > 0 / grow(), releaseWriteEncodingBuffer(old)
+    Owned --> Owned: buffer full / grow()
+    Borrowed --> [*]: release() / releaseWriteEncodingBuffer(buf)
+    Owned --> [*]: release() / drop buf
 ```
+
+`grow()` allocates an array of twice the size (or as large as needed), copies the used part,
+and makes it the current buffer.
 
 The initial buffer comes from Jackson's `BufferRecycler` (8000 bytes by default) so that a
 generator per `writeValueAsBytes` does not allocate. `grow()` is only reached inside an open
