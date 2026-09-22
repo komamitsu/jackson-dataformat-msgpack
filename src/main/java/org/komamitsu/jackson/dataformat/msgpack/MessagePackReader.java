@@ -40,9 +40,9 @@ final class MessagePackReader
     private byte[] buf;
     private int pos;
     private int end;
-    // Bytes consumed and then discarded from the buffer, so that consumed + pos is the
-    // total consumed. Starts negative for array sources that begin at an offset.
-    private long consumed;
+    // Added to pos to get the total number of bytes consumed. Negative for an array
+    // source starting at an offset, whose buf[0] precedes the first byte of the input.
+    private long posBase;
     // Scratch for property names longer than 12 bytes, see readName.
     private int[] quadBuffer;
 
@@ -69,12 +69,13 @@ final class MessagePackReader
         this.buf = data;
         this.pos = offset;
         this.end = offset + length;
-        this.consumed = -offset;
+        this.posBase = -offset;
     }
 
     long getTotalReadBytes()
     {
-        return consumed + pos;
+        assert posBase + pos >= 0;
+        return posBase + pos;
     }
 
     boolean hasNext() throws IOException
@@ -451,7 +452,7 @@ final class MessagePackReader
             throw eof();
         }
         // The buffer is drained; read the rest straight into the result.
-        consumed += pos;
+        posBase += pos;
         pos = 0;
         end = 0;
         int off = copied;
@@ -463,7 +464,7 @@ final class MessagePackReader
             off += n;
             remaining -= n;
         }
-        consumed += len - copied;
+        posBase += len - copied;
         return result;
     }
 
@@ -566,7 +567,7 @@ final class MessagePackReader
         int available = end - pos;
         if (pos > 0) {
             System.arraycopy(buf, pos, buf, 0, available);
-            consumed += pos;
+            posBase += pos;
             pos = 0;
             end = available;
         }
