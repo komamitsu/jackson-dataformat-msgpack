@@ -455,6 +455,34 @@ public class MessagePackReaderTest
         r3.release();
     }
 
+    // A binary value goes through readPayload, which the small values of the test above do
+    // not exercise. Both a payload that fits the buffer and one that does not must leave the
+    // stream exactly at the end of the value.
+    @Test
+    public void withoutReadAheadAPayloadStopsAtTheEndOfTheValue() throws IOException
+    {
+        for (int size : new int[] {5_000, 30_000}) {
+            byte[] payload = new byte[size];
+            for (int i = 0; i < payload.length; i++) {
+                payload[i] = (byte) i;
+            }
+            byte[] data = pack(p -> p.packBinaryHeader(payload.length).writePayload(payload).packInt(7));
+            ByteArrayInputStream stream = new ByteArrayInputStream(data);
+
+            MessagePackReader r1 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
+            int len = r1.unpackBinaryHeader();
+            assertArrayEquals(payload, r1.readPayload(len));
+            assertEquals(data.length - 1, r1.getTotalReadBytes());
+            r1.release();
+            assertEquals(1, stream.available(), "only the binary value was consumed");
+
+            MessagePackReader r2 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
+            assertEquals(7, r2.unpackLong());
+            assertFalse(r2.hasNext());
+            r2.release();
+        }
+    }
+
     @Test
     public void withReadAheadTheStreamIsBuffered() throws IOException
     {

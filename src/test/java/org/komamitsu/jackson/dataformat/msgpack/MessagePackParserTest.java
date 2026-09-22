@@ -1177,6 +1177,30 @@ public class MessagePackParserTest
     }
 
     @Test
+    public void testStreamStaysOpenWhenAutoCloseSourceDisabled()
+            throws IOException
+    {
+        byte[] bytes = objectMapper.writeValueAsBytes(Arrays.asList(1, 2, 3));
+        final int[] closeCount = {0};
+        InputStream trackingStream = new ByteArrayInputStream(bytes) {
+            @Override
+            public void close() throws IOException
+            {
+                closeCount[0]++;
+                super.close();
+            }
+        };
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory())
+                .disable(StreamReadFeature.AUTO_CLOSE_SOURCE)
+                .build();
+
+        List<Integer> value = mapper.readValue(trackingStream, new TypeReference<List<Integer>>() {});
+
+        assertEquals(Arrays.asList(1, 2, 3), value);
+        assertEquals(0, closeCount[0], "the caller keeps the stream, so it must not be closed");
+    }
+
+    @Test
     public void testGetStringOnNullToken() throws IOException
     {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
