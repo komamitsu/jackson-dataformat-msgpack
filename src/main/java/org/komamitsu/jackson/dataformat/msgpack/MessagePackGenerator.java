@@ -240,7 +240,7 @@ public class MessagePackGenerator
             byte[] data = new byte[len];
             bb.duplicate().get(data);
             writer.packBinaryHeader(len);
-            writer.addPayload(data);
+            writer.writePayload(data);
         }
     }
 

@@ -201,13 +201,6 @@ public class MessagePackWriterTest
                 w.packBinaryHeader(len);
                 w.writePayload(payload);
             });
-            assertSameBytes(p -> {
-                p.packBinaryHeader(len);
-                p.addPayload(payload);
-            }, w -> {
-                w.packBinaryHeader(len);
-                w.addPayload(payload);
-            });
         }
     }
 

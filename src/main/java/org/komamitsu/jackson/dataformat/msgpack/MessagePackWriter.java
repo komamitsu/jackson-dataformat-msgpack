@@ -465,11 +465,6 @@ final class MessagePackWriter
         }
     }
 
-    void addPayload(byte[] src) throws IOException
-    {
-        writePayload(src, 0, src.length);
-    }
-
     void flush() throws IOException
     {
         if (holdDepth > 0) {
