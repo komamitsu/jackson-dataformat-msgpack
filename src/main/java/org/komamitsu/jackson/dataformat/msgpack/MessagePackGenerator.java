@@ -161,24 +161,16 @@ public class MessagePackGenerator
 
     private void openContainer(boolean map, int sizeHint)
     {
-        try {
-            int offset = writer.openContainer(map, sizeHint);
-            writeContext.setHeader(offset, writer.position() - offset);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        pack(w -> {
+            int offset = w.openContainer(map, sizeHint);
+            writeContext.setHeader(offset, w.position() - offset);
+        });
     }
 
     private void closeContainer(boolean map)
     {
-        try {
-            writer.closeContainer(map, writeContext.headerOffset(), writeContext.reservedHeaderLength(),
-                    writeContext.getEntryCount());
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        pack(w -> w.closeContainer(map, writeContext.headerOffset(), writeContext.reservedHeaderLength(),
+                writeContext.getEntryCount()));
         writeContext = writeContext.getParent();
     }
 
@@ -299,13 +291,19 @@ public class MessagePackGenerator
     private JsonGenerator writeValue(ValueWriter value)
     {
         verifyValueWrite();
+        pack(value);
+        return this;
+    }
+
+    // Encodes without the value check, for keys and container headers, which have their own.
+    private void pack(ValueWriter value)
+    {
         try {
             value.write(writer);
         }
         catch (IOException e) {
             throw _wrapIOFailure(e);
         }
-        return this;
     }
 
     private void verifyValueWrite()
@@ -333,12 +331,7 @@ public class MessagePackGenerator
             if (!writeContext.writeName(String.valueOf(id))) {
                 _reportError("Can not write a property id, expecting a value");
             }
-            try {
-                writer.packLong(id);
-            }
-            catch (IOException e) {
-                throw _wrapIOFailure(e);
-            }
+            pack(w -> w.packLong(id));
         }
         else {
             writeName(String.valueOf(id));
@@ -359,12 +352,7 @@ public class MessagePackGenerator
         if (!writeContext.writeName(name)) {
             _reportError("Can not write a property name, expecting a value");
         }
-        try {
-            writer.packString(name);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        pack(w -> w.packString(name));
         return this;
     }
 
@@ -376,12 +364,7 @@ public class MessagePackGenerator
             if (!writeContext.writeName(name.getValue())) {
                 _reportError("Can not write a property name, expecting a value");
             }
-            try {
-                packKey(((MessagePackSerializedString) name).getRawValue());
-            }
-            catch (IOException e) {
-                throw _wrapIOFailure(e);
-            }
+            pack(w -> packKey(((MessagePackSerializedString) name).getRawValue()));
         }
         else {
             writeName(name.getValue());
@@ -602,12 +585,7 @@ public class MessagePackGenerator
     public void writeExtensionType(MessagePackExtensionType extensionType)
     {
         verifyValueWrite();
-        try {
-            packExtensionType(extensionType);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        pack(w -> packExtensionType(extensionType));
     }
 
     @Override
@@ -661,12 +639,7 @@ public class MessagePackGenerator
             // Headers of open containers are still to be patched, so nothing can be written yet.
             return;
         }
-        try {
-            writer.flush();
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
+        pack(MessagePackWriter::flush);
     }
 
     @Override
