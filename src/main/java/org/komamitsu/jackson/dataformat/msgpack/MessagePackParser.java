@@ -24,6 +24,7 @@ import tools.jackson.core.TokenStreamContext;
 import tools.jackson.core.TokenStreamLocation;
 import tools.jackson.core.Version;
 import tools.jackson.core.base.ParserMinimalBase;
+import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.core.exc.UnexpectedEndOfInputException;
 import tools.jackson.core.io.IOContext;
 import tools.jackson.core.json.DupDetector;
@@ -342,7 +343,7 @@ public class MessagePackParser
             case NULL:
                 return "null";
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -370,11 +371,36 @@ public class MessagePackParser
         return 0;
     }
 
+    // The accessors below all reject the same wrong states; keeping the messages here keeps
+    // each accessor down to its own conversion logic. These build the exception rather than
+    // throwing it, so a caller writes "throw notNumeric();" and the compiler sees the method
+    // end there, with no boxing of the value type that was never returned.
+    private StreamReadException notNumeric()
+    {
+        return _constructReadException(
+                "Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+    }
+
+    private StreamReadException notBinary()
+    {
+        return _constructReadException("Current token (" + _currToken + ") not of binary type");
+    }
+
+    private StreamReadException notEmbeddable()
+    {
+        return _constructReadException("Current token (" + _currToken + ") not of embeddable type");
+    }
+
+    private StreamReadException unexpectedType()
+    {
+        return _constructReadException("Unexpected MessagePack value type: " + type);
+    }
+
     @Override
     public byte[] getBinaryValue(Base64Variant b64variant)
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not of binary type");
+            throw notBinary();
         }
         switch (type) {
             case BYTES:
@@ -389,9 +415,9 @@ public class MessagePackParser
             case BOOL:
             case BIG_INT:
             case NULL:
-                return _reportError("Current token (" + _currToken + ") not of binary type");
+                throw notBinary();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -399,7 +425,7 @@ public class MessagePackParser
     public Number getNumberValue()
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -415,9 +441,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -425,7 +451,7 @@ public class MessagePackParser
     public int getIntValue()
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -455,9 +481,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -465,7 +491,7 @@ public class MessagePackParser
     public long getLongValue()
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -493,9 +519,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -503,7 +529,7 @@ public class MessagePackParser
     public BigInteger getBigIntegerValue()
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -522,9 +548,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -534,7 +560,7 @@ public class MessagePackParser
         // No bounds/range check: a finite double or large BigInteger may overflow to
         // Float.POSITIVE_INFINITY. This is intentional — same as ParserBase and CBORParser.
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -550,9 +576,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -562,7 +588,7 @@ public class MessagePackParser
         // No bounds/range check: large BigInteger may overflow to Double.POSITIVE_INFINITY,
         // and large long values may lose precision. Intentional — same as ParserBase.
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -578,9 +604,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -588,7 +614,7 @@ public class MessagePackParser
     public BigDecimal getDecimalValue()
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+            throw notNumeric();
         }
         switch (type) {
             case INT:
@@ -607,9 +633,9 @@ public class MessagePackParser
             case STRING:
             case BYTES:
             case EXT:
-                return _reportError("Current token (" + _currToken + ") not numeric, cannot use numeric value accessors");
+                throw notNumeric();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -629,7 +655,7 @@ public class MessagePackParser
     public Object getEmbeddedObject()
     {
         if (type == null) {
-            return _reportError("Current token (" + _currToken + ") not of embeddable type");
+            throw notEmbeddable();
         }
         switch (type) {
             case BYTES:
@@ -648,9 +674,9 @@ public class MessagePackParser
             case BIG_INT:
             case STRING:
             case NULL:
-                return _reportError("Current token (" + _currToken + ") not of embeddable type");
+                throw notEmbeddable();
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
@@ -676,7 +702,7 @@ public class MessagePackParser
             case EXT:
                 return null;
             default:
-                return _reportError("Unexpected MessagePack value type: " + type);
+                throw unexpectedType();
         }
     }
 
