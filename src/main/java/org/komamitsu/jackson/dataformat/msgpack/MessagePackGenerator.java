@@ -253,7 +253,7 @@ public class MessagePackGenerator
 
     private void packBigDecimal(BigDecimal decimal) throws IOException
     {
-        packNumber(representable(decimal));
+        packDecimalEncoding(representable(decimal));
     }
 
     // How a BigDecimal goes on the wire: as an integer if it has no fraction and fits one,
@@ -277,14 +277,35 @@ public class MessagePackGenerator
         return doubleValue;
     }
 
-    private void packNumber(Number encoding) throws IOException
+    // Takes what representable() decided, so the cast holds by construction.
+    private void packDecimalEncoding(Number encoding) throws IOException
     {
         if (encoding instanceof BigInteger) {
             writer.packBigInteger((BigInteger) encoding);
         }
         else {
-            writer.packDouble(encoding.doubleValue());
+            writer.packDouble((Double) encoding);
         }
+    }
+
+    @FunctionalInterface
+    private interface ValueWriter
+    {
+        void write(MessagePackWriter writer) throws IOException;
+    }
+
+    // Every scalar write is the same three steps: check the value is allowed here, encode it,
+    // and turn a stream failure into the exception type Jackson expects.
+    private JsonGenerator writeValue(ValueWriter value)
+    {
+        verifyValueWrite();
+        try {
+            value.write(writer);
+        }
+        catch (IOException e) {
+            throw _wrapIOFailure(e);
+        }
+        return this;
     }
 
     private void verifyValueWrite()
@@ -374,14 +395,7 @@ public class MessagePackGenerator
         if (text == null) {
             return writeNull();
         }
-        verifyValueWrite();
-        try {
-            writer.packString(text);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packString(text));
     }
 
     @Override
@@ -434,15 +448,10 @@ public class MessagePackGenerator
         // Checked before the header is written or the value counted, so a bad slice leaves
         // the stream as it was.
         Objects.checkFromIndexSize(offset, length, text.length);
-        verifyValueWrite();
-        try {
-            writer.packRawStringHeader(length);
-            writer.writePayload(text, offset, length);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> {
+            w.packRawStringHeader(length);
+            w.writePayload(text, offset, length);
+        });
     }
 
     @Override
@@ -473,15 +482,10 @@ public class MessagePackGenerator
     public JsonGenerator writeBinary(Base64Variant b64variant, byte[] data, int offset, int len) throws JacksonException
     {
         Objects.checkFromIndexSize(offset, len, data.length);
-        verifyValueWrite();
-        try {
-            writer.packBinaryHeader(len);
-            writer.writePayload(data, offset, len);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> {
+            w.packBinaryHeader(len);
+            w.writePayload(data, offset, len);
+        });
     }
 
     @Override
@@ -493,27 +497,13 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeNumber(int v) throws JacksonException
     {
-        verifyValueWrite();
-        try {
-            writer.packInt(v);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packInt(v));
     }
 
     @Override
     public JsonGenerator writeNumber(long v) throws JacksonException
     {
-        verifyValueWrite();
-        try {
-            writer.packLong(v);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packLong(v));
     }
 
     @Override
@@ -526,40 +516,19 @@ public class MessagePackGenerator
         if (!MessagePackWriter.fitsInteger(v)) {
             throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + v);
         }
-        verifyValueWrite();
-        try {
-            writer.packBigInteger(v);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packBigInteger(v));
     }
 
     @Override
     public JsonGenerator writeNumber(double d) throws JacksonException
     {
-        verifyValueWrite();
-        try {
-            writer.packDouble(d);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packDouble(d));
     }
 
     @Override
     public JsonGenerator writeNumber(float f) throws JacksonException
     {
-        verifyValueWrite();
-        try {
-            writer.packFloat(f);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packFloat(f));
     }
 
     @Override
@@ -569,14 +538,7 @@ public class MessagePackGenerator
             return writeNull();
         }
         Number encoding = representable(dec);
-        verifyValueWrite();
-        try {
-            packNumber(encoding);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> packDecimalEncoding(encoding));
     }
 
     @Override
@@ -628,27 +590,13 @@ public class MessagePackGenerator
     @Override
     public JsonGenerator writeBoolean(boolean state) throws JacksonException
     {
-        verifyValueWrite();
-        try {
-            writer.packBoolean(state);
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packBoolean(state));
     }
 
     @Override
     public JsonGenerator writeNull() throws JacksonException
     {
-        verifyValueWrite();
-        try {
-            writer.packNil();
-        }
-        catch (IOException e) {
-            throw _wrapIOFailure(e);
-        }
-        return this;
+        return writeValue(w -> w.packNil());
     }
 
     public void writeExtensionType(MessagePackExtensionType extensionType)
