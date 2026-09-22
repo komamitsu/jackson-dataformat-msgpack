@@ -125,6 +125,81 @@ Nested containers therefore just nest: each level's context holds its own offset
 onward is in the buffer until that container closes; then `holdDepth` drops to 0 and the
 next `ensure()` may flush.
 
+### 2.2.2 When a flush is allowed
+
+`flush()` is public API and databind calls it between values, so it can arrive while a
+container is open:
+
+```java
+gen.writeStartObject();
+gen.writeName("a");
+gen.writeNumber(1);
+gen.flush();            // here
+```
+
+At that moment the buffer holds:
+
+```
+offset   0    1    2    3
+       +----+----+----+----+
+       | ?? | a1 | 61 | 01 |
+       +----+----+----+----+
+         ^     \------------/
+         |       "a": 1
+         reserved for the map header; the entry count is still unknown
+```
+
+Writing those four bytes to the stream would send an unpatched header byte, and the mistake
+could not be repaired afterwards because the bytes are already gone.
+
+A flush can also arrive from a generator that is at root and still must not flush. A POJO
+map key is written by a nested generator that shares the writer (see 2.6), and when the key
+is finished try-with-resources closes it. `close()` flushes when its context is at root, and
+it is at root: it opened and closed its own map. The parent's map stays open, but the nested
+generator's context stack cannot see it:
+
+```
+offset   0    1    2    3    4    5    6    7
+       +----+----+----+----+----+----+----+----+
+       | ?? | 82 | a1 | 78 | 01 | a1 | 79 | 02 |
+       +----+----+----+----+----+----+----+----+
+         ^     \--------------------------------/
+         |       the finished key {"x":1,"y":2},
+         |       written by the nested generator
+         parent's map header, still reserved
+
+   nested generator's context: root (its map is closed)
+   parent generator's context: inside the outer map, whose header is at offset 0
+```
+
+So `flush()` decides in two steps, and the writer asserts the decision was right:
+
+```mermaid
+flowchart TD
+    F["flush()"] --> O{ownsWriter?}
+    O -- "no: nested key generator" --> S1["return: the parent owns the writer"]
+    O -- yes --> R{"writeContext.inRoot()?"}
+    R -- "no: containers open" --> S2["return: headers still to patch"]
+    R -- yes --> W["writer.flush()"]
+    W --> H{"holdDepth > 0?"}
+    H -- yes --> E["IllegalStateException"]
+    H -- no --> D["flushBuffer(), out.flush()"]
+```
+
+The two questions are different: `ownsWriter` is about *which* generator is asking, and
+`inRoot()` about *when* it asks. Neither implies the other, so each case is caught by one
+check only:
+
+| Situation | `ownsWriter` | `inRoot()` | Stopped by |
+|---|---|---|---|
+| A generator flushes inside its own open object | true | false | `inRoot()` |
+| A nested key generator closes after writing the key | false | true | `ownsWriter` |
+
+`holdDepth` is the writer's own count of open containers, kept in step with the generator's
+context stack. Reaching the `IllegalStateException` branch means those two disagreed, which
+is a bug in this library rather than caller error; the exception exists so the disagreement
+is loud instead of producing a corrupt value.
+
 ### 2.3 Buffer ownership
 
 Transitions are labelled "event, guard / action".
@@ -257,6 +332,54 @@ A non-scalar map key (`MessagePackKeySerializer` on a POJO) is serialized by a n
 `MessagePackGenerator` that shares the parent's `MessagePackWriter`, so the key's containers
 are patched in place inside the parent's buffer. The nested generator has its own write
 context stack, seeded with the parent's nesting depth so `maxNestingDepth` still holds.
+
+Serializing a `Map<Point, String>` holding `Point(x=1, y=2)` to `"ok"` gives eleven bytes,
+written by both generators into one buffer:
+
+```
+offset   0    1    2    3    4    5    6    7    8    9   10
+       +----+----+----+----+----+----+----+----+----+----+----+
+       | 81 | 82 | a1 | 78 | 01 | a1 | 79 | 02 | a2 | 6f | 6b |
+       +----+----+----+----+----+----+----+----+----+----+----+
+         |     \---------------------------/    \------------/
+         |       the key {"x":1,"y":2},           the value "ok",
+         |       nested generator                 parent again
+         |
+         parent's map header: one reserved byte while the map is open,
+         patched to 81 (fixmap 1) by closeContainer
+```
+
+Offset 1 is the key's own map header, opened and patched by the nested generator while the
+parent's header at offset 0 is still an unpatched placeholder. Nothing is copied at the end;
+the key's bytes are written where they belong.
+
+That works only if the two generators agree on who may end the writer's life. The
+`ownsWriter` flag answers that: only the generator that created the writer flushes it,
+closes the output target under `AUTO_CLOSE_TARGET`, and releases its buffer to the pool.
+
+The nested generator sits in a try-with-resources, so it is closed as soon as the key is
+written, and its `close()` must leave the shared writer alone:
+
+```mermaid
+sequenceDiagram
+    participant P as parent generator
+    participant N as nested generator
+    participant W as shared MessagePackWriter
+
+    P->>W: openContainer(map), reserves offset 0
+    P->>N: new (ownsWriter = false)
+    N->>W: openContainer(map), reserves offset 1
+    N->>W: packString("x"), packInt(1), packString("y"), packInt(2)
+    N->>W: closeContainer(), patches offset 1 to 82
+    N-->>N: close(): flush, _closeInput, _releaseBuffers all skipped
+    P->>W: writeString("ok")
+    P->>W: closeContainer(), patches offset 0 to 81
+    P->>W: flush(), release()
+```
+
+Without the flag, the nested `close()` would flush the parent's buffer while the header at
+offset 0 is still a placeholder, emitting a map whose count is whatever byte happened to be
+reserved, and would hand the buffer back to the pool while the parent is still writing to it.
 
 ## 3. Read path
 
