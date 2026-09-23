@@ -232,10 +232,16 @@ public class MessagePackGenerator
             // Any other key type is serialized as a nested value in key position, straight into
             // this generator's writer. The nested generator only tracks its own context stack,
             // but starts counting depth where this one is so the nesting limit still holds.
+            int start = writer.position();
             try (MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
                     writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
                 objectWriteContext().writeValue(nested, key);
+            }
+            if (writer.position() == start) {
+                // The serializer left the key unfinished and closing the nested generator
+                // discarded it. Writing the value now would produce an entry with no key.
+                _reportError("Map key was not written: its serializer left the value unfinished");
             }
         }
     }

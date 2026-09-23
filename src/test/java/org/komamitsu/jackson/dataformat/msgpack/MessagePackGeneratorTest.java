@@ -1668,6 +1668,60 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Writes a complex map key as a value that is never finished, the way a serializer that
+    // threw halfway would leave it.
+    public static class UnfinishedSerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            gen.writeStartObject();
+        }
+    }
+
+    private static ObjectMapper mapperWithUnfinishedKey(boolean autoCloseContent)
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new UnfinishedSerializer());
+        return MessagePackMapper.builder(new MessagePackFactory())
+                .configure(StreamWriteFeature.AUTO_CLOSE_CONTENT, autoCloseContent)
+                .addModule(mod)
+                .build();
+    }
+
+    private static HashMap<TinyPojo, Integer> mapWithPojoKey()
+    {
+        HashMap<TinyPojo, Integer> map = new HashMap<>();
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+        map.put(pojo, 42);
+        return map;
+    }
+
+    // With AUTO_CLOSE_CONTENT off the unfinished key is discarded, so writing the value would
+    // leave a map entry with no key at all. That must be reported instead.
+    @Test
+    public void anAbandonedComplexKeyIsReported()
+    {
+        assertThrows(JacksonException.class,
+                () -> mapperWithUnfinishedKey(false).writeValueAsBytes(mapWithPojoKey()));
+    }
+
+    // With AUTO_CLOSE_CONTENT on, the same key is completed as an empty map and the entry stands.
+    @Test
+    public void anUnfinishedComplexKeyIsCompletedWhenContentIsAutoClosed() throws IOException
+    {
+        byte[] bytes = mapperWithUnfinishedKey(true).writeValueAsBytes(mapWithPojoKey());
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals(0, unpacker.unpackMapHeader());
+            assertEquals(42, unpacker.unpackInt());
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
     // A name the format cannot write must leave the context as it was. Otherwise the caller
     // catches the failure, closes the generator, and AUTO_CLOSE_CONTENT writes nil for a name
     // whose bytes never reached the buffer, producing a map entry with a value and no key.
