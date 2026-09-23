@@ -35,6 +35,8 @@ import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -202,6 +204,18 @@ public class MessagePackWriterTest
                 w.writePayload(payload);
             });
         }
+    }
+
+    // A String can hold more chars than fit in an int once multiplied by 3, and the in-place
+    // check must not wrap into thinking such a String is small enough for the buffer.
+    @Test
+    public void theInPlaceCheckDoesNotOverflow()
+    {
+        assertTrue(MessagePackWriter.fitsInPlace(10, 8000));
+        assertTrue(MessagePackWriter.fitsInPlace(2665, 8000));
+        assertFalse(MessagePackWriter.fitsInPlace(2666, 8000));
+        assertFalse(MessagePackWriter.fitsInPlace(800_000_000, 8000));
+        assertFalse(MessagePackWriter.fitsInPlace(Integer.MAX_VALUE, 8000));
     }
 
     @Test

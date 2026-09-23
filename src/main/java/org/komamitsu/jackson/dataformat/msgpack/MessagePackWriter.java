@@ -151,10 +151,8 @@ final class MessagePackWriter
     void packString(String s) throws IOException
     {
         int charLen = s.length();
-        // Worst case: 3 bytes per char plus the largest header.
-        int worstCase = 3 * charLen + MAX_STRING_HEADER;
-        if (worstCase <= buf.length) {
-            ensure(worstCase);
+        if (fitsInPlace(charLen, buf.length)) {
+            ensure(3 * charLen + MAX_STRING_HEADER);
             packStringInPlace(s, charLen);
             return;
         }
@@ -168,6 +166,18 @@ final class MessagePackWriter
         else {
             writePayload(s.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * Whether a string of this many chars is guaranteed to fit the buffer with its header:
+     * at most 3 bytes per char plus the largest header. Computed as a long, because a String
+     * long enough to overflow the int form would otherwise look like a tiny one and take the
+     * in-place path with a capacity request that wrapped negative.
+     */
+    @VisibleForTesting
+    static boolean fitsInPlace(int charLen, int bufLen)
+    {
+        return 3L * charLen + MAX_STRING_HEADER <= bufLen;
     }
 
     // Encodes in a single pass, without counting the bytes first. A char is at least one
