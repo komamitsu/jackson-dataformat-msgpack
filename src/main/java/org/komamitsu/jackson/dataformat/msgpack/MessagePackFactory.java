@@ -1,0 +1,225 @@
+//
+// MessagePack for Java
+//
+//    Licensed under the Apache License, Version 2.0 (the "License");
+//    you may not use this file except in compliance with the License.
+//    You may obtain a copy of the License at
+//
+//        http://www.apache.org/licenses/LICENSE-2.0
+//
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS,
+//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//    See the License for the specific language governing permissions and
+//    limitations under the License.
+//
+package org.komamitsu.jackson.dataformat.msgpack;
+
+import tools.jackson.core.ErrorReportConfiguration;
+import tools.jackson.core.FormatFeature;
+import tools.jackson.core.FormatSchema;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.ObjectReadContext;
+import tools.jackson.core.ObjectWriteContext;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.StreamWriteConstraints;
+import tools.jackson.core.TSFBuilder;
+import tools.jackson.core.TokenStreamFactory;
+import tools.jackson.core.Version;
+import tools.jackson.core.base.BinaryTSFactory;
+import tools.jackson.core.io.IOContext;
+import tools.jackson.core.sym.ByteQuadsCanonicalizer;
+
+import java.io.DataInput;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+public class MessagePackFactory
+        extends BinaryTSFactory
+        implements java.io.Serializable
+{
+    private static final long serialVersionUID = 2578263992015504348L;
+
+    // Shared table of property names seen by parsers from this factory, so repeated keys
+    // resolve to the same String without decoding. Each parser gets a child that is merged
+    // back on close.
+    private final transient ByteQuadsCanonicalizer byteSymbolCanonicalizer = ByteQuadsCanonicalizer.createRoot();
+
+    private boolean str8FormatSupport = true;
+    private boolean supportIntegerKeys = false;
+    private ExtensionTypeCustomDeserializers extTypeCustomDesers;
+
+    public MessagePackFactory()
+    {
+        super(StreamReadConstraints.defaults(), StreamWriteConstraints.defaults(),
+                ErrorReportConfiguration.defaults(), 0, 0);
+    }
+
+    public MessagePackFactory(MessagePackFactory src)
+    {
+        super(src);
+        this.str8FormatSupport = src.str8FormatSupport;
+        this.supportIntegerKeys = src.supportIntegerKeys;
+        if (src.extTypeCustomDesers != null) {
+            this.extTypeCustomDesers = new ExtensionTypeCustomDeserializers(src.extTypeCustomDesers);
+        }
+    }
+
+    protected MessagePackFactory(MessagePackFactoryBuilder b)
+    {
+        super(b);
+        this.str8FormatSupport = b.str8FormatSupport();
+        this.supportIntegerKeys = b.supportIntegerKeys();
+        this.extTypeCustomDesers = b.extTypeCustomDesers();
+    }
+
+    /**
+     * Whether strings of 32 to 255 bytes use the str8 format. Disable for readers that
+     * predate str8 in the MessagePack specification, which then get str16 instead.
+     */
+    public MessagePackFactory setStr8FormatSupport(boolean str8FormatSupport)
+    {
+        this.str8FormatSupport = str8FormatSupport;
+        return this;
+    }
+
+    public MessagePackFactory setSupportIntegerKeys(boolean supportIntegerKeys)
+    {
+        this.supportIntegerKeys = supportIntegerKeys;
+        return this;
+    }
+
+    public MessagePackFactory setExtTypeCustomDesers(ExtensionTypeCustomDeserializers extTypeCustomDesers)
+    {
+        this.extTypeCustomDesers = extTypeCustomDesers;
+        return this;
+    }
+
+    @Override
+    protected JsonParser _createParser(ObjectReadContext readCtxt, IOContext ioCtxt,
+            InputStream in) throws JacksonException
+    {
+        // With AUTO_CLOSE_SOURCE disabled the caller may read further values from the same
+        // stream afterwards, so the reader must not consume bytes beyond the current value.
+        boolean readAhead = StreamReadFeature.AUTO_CLOSE_SOURCE.enabledIn(
+                readCtxt.getStreamReadFeatures(_streamReadFeatures));
+        return newParser(readCtxt, ioCtxt, new MessagePackReader(ioCtxt, in, readAhead));
+    }
+
+    @Override
+    protected JsonParser _createParser(ObjectReadContext readCtxt, IOContext ioCtxt,
+            byte[] data, int offset, int len) throws JacksonException
+    {
+        return newParser(readCtxt, ioCtxt, new MessagePackReader(data, offset, len));
+    }
+
+    private MessagePackParser newParser(ObjectReadContext readCtxt, IOContext ioCtxt, MessagePackReader reader)
+    {
+        ByteQuadsCanonicalizer symbols = Feature.CANONICALIZE_PROPERTY_NAMES.enabledIn(_factoryFeatures)
+                ? byteSymbolCanonicalizer.makeChild(_factoryFeatures) : null;
+        MessagePackParser parser = new MessagePackParser(readCtxt, ioCtxt,
+                readCtxt.getStreamReadFeatures(_streamReadFeatures), reader, symbols);
+        if (extTypeCustomDesers != null) {
+            parser.setExtensionTypeCustomDeserializers(extTypeCustomDesers);
+        }
+        return parser;
+    }
+
+    @Override
+    protected JsonParser _createParser(ObjectReadContext readCtxt, IOContext ioCtxt,
+            DataInput input) throws JacksonException
+    {
+        return _unsupported();
+    }
+
+    @Override
+    protected JsonGenerator _createGenerator(ObjectWriteContext writeCtxt, IOContext ioCtxt,
+            OutputStream out) throws JacksonException
+    {
+        return new MessagePackGenerator(writeCtxt, ioCtxt,
+                writeCtxt.getStreamWriteFeatures(_streamWriteFeatures),
+                out, str8FormatSupport, supportIntegerKeys);
+    }
+
+    // The symbol table is transient, so a deserialized instance is replaced by a copy that
+    // has a fresh one. Same as Jackson's own factories.
+    protected Object readResolve()
+    {
+        return new MessagePackFactory(this);
+    }
+
+    @Override
+    public TokenStreamFactory copy()
+    {
+        return new MessagePackFactory(this);
+    }
+
+    @Override
+    public TokenStreamFactory snapshot()
+    {
+        return copy();
+    }
+
+    @Override
+    public TSFBuilder<?, ?> rebuild()
+    {
+        return new MessagePackFactoryBuilder(this);
+    }
+
+    @Override
+    public Version version()
+    {
+        return PackageVersion.VERSION;
+    }
+
+    @VisibleForTesting
+    boolean isStr8FormatSupport()
+    {
+        return str8FormatSupport;
+    }
+
+    @VisibleForTesting
+    boolean isSupportIntegerKeys()
+    {
+        return supportIntegerKeys;
+    }
+
+    @VisibleForTesting
+    ExtensionTypeCustomDeserializers getExtTypeCustomDesers()
+    {
+        return extTypeCustomDesers;
+    }
+
+    @Override
+    public String getFormatName()
+    {
+        return "msgpack";
+    }
+
+    @Override
+    public boolean canParseAsync()
+    {
+        return false;
+    }
+
+    @Override
+    public boolean canUseSchema(FormatSchema schema)
+    {
+        return false;
+    }
+
+    @Override
+    public Class<? extends FormatFeature> getFormatReadFeatureType()
+    {
+        return null;
+    }
+
+    @Override
+    public Class<? extends FormatFeature> getFormatWriteFeatureType()
+    {
+        return null;
+    }
+}

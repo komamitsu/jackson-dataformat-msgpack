@@ -1,0 +1,21 @@
+[versions]
+jackson = "3.1.2"
+msgpack-core = "0.9.11"
+junit = "5.14.4"
+hamcrest = "3.0"
+commons-math3 = "3.6.1"
+jmh = "1.37"
+jmh-plugin = "0.7.3"
+maven-publish-plugin = "0.34.0"
+
+[libraries]
+jackson-databind = { module = "tools.jackson.core:jackson-databind", version.ref = "jackson" }
+msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack-core" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+hamcrest = { module = "org.hamcrest:hamcrest", version.ref = "hamcrest" }
+commons-math3 = { module = "org.apache.commons:commons-math3", version.ref = "commons-math3" }
+
+[plugins]
+jmh = { id = "me.champeau.jmh", version.ref = "jmh-plugin" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish-plugin" }

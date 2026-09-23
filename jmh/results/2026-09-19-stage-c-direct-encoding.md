@@ -1,0 +1,62 @@
+# Stage C: encode directly into bytes instead of a node tree
+
+Same machine, JVM and command as the earlier files. One column per step so each change's
+effect is attributable. All numbers are ops/s, mean ± error over 10 iterations, 2 forks.
+
+| Benchmark | Stage B | Step 1: writer hold mode | Step 2: direct encoding | Step 3: shared-writer keys |
+|---|---|---|---|---|
+| readPojoJson | 674310 ± 7943 | 662179 ± 12455 | 695429 ± 10394 | 687544 ± 7193 |
+| readPojoMsgpack | 635450 ± 11920 | 590722 ± 74275 | 638354 ± 4817 | 643288 ± 8555 |
+| writePojoJson | 1091652 ± 33939 | 1067343 ± 30158 | 1084473 ± 11131 | 1065463 ± 14988 |
+| writePojoMsgpack | 682674 ± 23782 | 699864 ± 9159 | **991796 ± 7045** | 969425 ± 25577 |
+| writeUTF8StringAscii | 102142 ± 900 | 103252 ± 1519 | 115701 ± 2283 | 113569 ± 2382 |
+| writeUTF8StringNonAscii | 100689 ± 6637 | 96774 ± 7785 | 110049 ± 1431 | 111097 ± 7840 |
+
+## Step 1: writer hold mode and header patching
+
+Control run. The generator does not use `openContainer`/`closeContainer` yet, so this
+measures whether adding the `holdDepth` check to the writer's hot path cost anything.
+Writes are unchanged within error. `readPojoMsgpack` has an unusually wide error bar this
+run (±74k against ±12k before); the reader was not touched, so that is machine noise.
+
+## Step 2: the generator encodes on every call
+
+The node tree is gone. Each `write*` encodes immediately into the writer; a container's
+header is reserved on open and patched on close from `MessagePackWriteContext.getEntryCount()`.
+
+`writePojoMsgpack` went from 700k to 992k ops/s, +42%, and now trails `writePojoJson` by
+8.5% instead of 37%. Raw string writes gained 12 to 14% from skipping the wrapper object
+and second pass. Read side unchanged, as expected.
+
+Two behaviour changes came with this, both now the same as Jackson's own generators:
+an `IllegalArgumentException` for an unrepresentable `BigDecimal` or `BigInteger` is raised
+while the property is written, so databind wraps it in `DatabindException` with the path
+(previously it escaped raw from `close()`); and closing a generator with open containers
+finishes them when `AUTO_CLOSE_CONTENT` is on. `MessagePackWriteContext` also now tracks
+nesting depth, so `StreamWriteConstraints.maxNestingDepth` is enforced on write.
+
+## Step 3: complex map keys encode into the parent's writer
+
+A POJO used as a map key was serialized by a nested generator into a
+ByteArrayOutputStream and then copied in. The nested generator now writes into the
+parent's writer directly, so its containers are patched in place. No benchmark uses
+complex keys; the run is a control and is unchanged within error (the JSON control
+moved by the same 2%).
+
+## Step 4: cleanup and final checks
+
+Nothing from the node design was left to remove after step 3. Retained heap per idle
+thread at 1024 threads and 1 MB payload is 137.55 KB, unchanged from Stage B: that figure
+is Jackson's BufferRecycler pooling, as explained in the Stage B results file. The
+published POM still lists only jackson-databind, and the consumer smoke project runs.
+
+## Summary against Stage B
+
+| Benchmark | Stage B | Stage C (step 3) | Change |
+|---|---|---|---|
+| writePojoMsgpack | 682674 | 969425 | **+42%** |
+| writeUTF8StringAscii | 102142 | 113569 | +11% |
+| writeUTF8StringNonAscii | 100689 | 111097 | +10% |
+| readPojoMsgpack | 635450 | 643288 | unchanged |
+
+MessagePack write is now within about 9% of Jackson's JSON writer on the same POJO.
