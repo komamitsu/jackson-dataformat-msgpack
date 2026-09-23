@@ -218,12 +218,17 @@ public class MessagePackGenerator
 
     /**
      * Writes a key's bytes, leaving the buffer as it was if that fails. The name is recorded by
-     * the caller afterwards, so an abandoned key leaves neither bytes nor a pending name.
+     * the caller afterwards, so a rejected key leaves neither bytes nor a pending name.
      *
-     * <p>A complex key is written by a nested generator sharing this writer, and it can finish
-     * having written nothing: its serializer wrote no tokens, or it left a container open and
-     * the nested close() discarded it (AUTO_CLOSE_CONTENT off). Serializing {@code {pojo: 42}}
-     * would then patch a header counting an entry whose key is missing:
+     * <p>A key must encode to exactly one scalar value, which is checked in three steps: the
+     * nested generator must have written one root value (counted in {@link #packKey}), that
+     * value must have reached the buffer, and it must not be a map or an array unless
+     * {@code containerMapKeySupport} is set.
+     *
+     * <p>The middle step looks redundant but is not. A complex key is written by a nested
+     * generator sharing this writer, and with AUTO_CLOSE_CONTENT off an unfinished key is
+     * counted as a value and then discarded by the nested close(), leaving nothing behind.
+     * Serializing {@code {pojo: 42}} would then patch a header counting an entry with no key:
      *
      * <pre>
      *   writeStartObject       [ ?? ]         outer map header reserved at offset 0

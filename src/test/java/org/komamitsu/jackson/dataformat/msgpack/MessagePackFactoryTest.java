@@ -37,6 +37,8 @@ import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.CoreMatchers.sameInstance;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
 
 public class MessagePackFactoryTest
@@ -242,5 +244,22 @@ public class MessagePackFactoryTest
             .readValue(objectMapper.writeValueAsBytes(map), new TypeReference<Map<String, Integer>>() {});
         assertThat(deserialized.size(), is(1));
         assertThat(deserialized.get("one"), is(1));
+    }
+    @Test
+    public void containerMapKeySupportSurvivesCopyAndRebuild()
+    {
+        MessagePackFactory plain = new MessagePackFactory();
+        assertFalse(plain.isContainerMapKeySupport());
+
+        MessagePackFactory opted = new MessagePackFactory().setContainerMapKeySupport(true);
+        assertTrue(opted.isContainerMapKeySupport());
+
+        assertTrue(((MessagePackFactory) opted.copy()).isContainerMapKeySupport());
+        assertTrue(((MessagePackFactory) opted.rebuild().build()).isContainerMapKeySupport());
+        assertFalse(((MessagePackFactory) plain.rebuild().build()).isContainerMapKeySupport());
+
+        assertTrue(new MessagePackFactoryBuilder().containerMapKeySupport(true).build()
+                .isContainerMapKeySupport());
+        assertFalse(new MessagePackFactoryBuilder().build().isContainerMapKeySupport());
     }
 }
