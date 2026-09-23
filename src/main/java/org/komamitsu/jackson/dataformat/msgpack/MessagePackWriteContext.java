@@ -138,13 +138,20 @@ class MessagePackWriteContext extends TokenStreamContext
         return _type == TYPE_OBJECT && !gotName;
     }
 
-    void setName(String name) throws StreamWriteException
+    /**
+     * Rejects a name that duplicate detection forbids. Kept apart from {@link #setName} so the
+     * check can run before any bytes are written and the recording after, leaving nothing
+     * behind if either step fails.
+     */
+    void checkDuplicate(String name) throws StreamWriteException
     {
-        // Checked first: a rejected name must leave the context as it was, or closing the
-        // generator would write a value for a name that never reached the output.
         if (dups != null) {
             checkDup(name);
         }
+    }
+
+    void setName(String name)
+    {
         currentName = name;
         gotName = true;
     }

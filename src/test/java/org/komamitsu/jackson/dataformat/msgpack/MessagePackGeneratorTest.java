@@ -1700,6 +1700,47 @@ public class MessagePackGeneratorTest
         return map;
     }
 
+    // Writes nothing at all for the key, so no bytes reach the buffer.
+    public static class SilentSerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+        }
+    }
+
+    // Reporting the missing key must not leave the map expecting a value for it. A caller that
+    // catches the failure and closes the generator would otherwise get nil written for that
+    // pending name, emitting a map whose one entry has a value and no key.
+    @Test
+    public void aKeyThatWritesNothingLeavesNoPendingEntry() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new SilentSerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory())
+                .addModule(mod)
+                .build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            assertThrows(JacksonException.class,
+                    () -> gen.writeName(new MessagePackSerializedString(pojo)));
+        }
+
+        // AUTO_CLOSE_CONTENT finished the map on close; it must be an empty one, not an entry
+        // whose key never reached the buffer.
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(0, unpacker.unpackMapHeader());
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
     // With AUTO_CLOSE_CONTENT off the unfinished key is discarded, so writing the value would
     // leave a map entry with no key at all. That must be reported instead.
     @Test

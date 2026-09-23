@@ -193,6 +193,45 @@ public class MessagePackGenerator
         }
     }
 
+    /**
+     * Writes a key's bytes, leaving the buffer as it was if that fails. The name is recorded by
+     * the caller afterwards, so an abandoned key leaves neither bytes nor a pending name.
+     *
+     * <p>A complex key is written by a nested generator sharing this writer, and it can finish
+     * having written nothing: its serializer wrote no tokens, or it left a container open and
+     * the nested close() discarded it (AUTO_CLOSE_CONTENT off). Serializing {@code {pojo: 42}}
+     * would then patch a header counting an entry whose key is missing:
+     *
+     * <pre>
+     *   writeStartObject       [ ?? ]         outer map header reserved at offset 0
+     *   writeName(pojo)   -&gt; nested generator
+     *     writeStartObject     [ ?? | ?? ]    the key's own header reserved at offset 1
+     *     (serializer stops here)
+     *     nested close()       [ ?? ]         key discarded, buffer back where it started
+     *   writeNumber(42)        [ ?? | 2a ]
+     *   writeEndObject         [ 81 | 2a ]    map(1) holding only 42
+     * </pre>
+     *
+     * <p>A reader takes that 42 as the key and then runs out of input looking for its value,
+     * so the missing key is reported here instead.
+     */
+    private void writeKeyBytes(Object raw)
+    {
+        int start = writer.position();
+        int holds = writer.holdDepth();
+        try {
+            pack(w -> packKey(raw));
+        }
+        catch (RuntimeException e) {
+            writer.discardFrom(start, holds);
+            throw e;
+        }
+        if (writer.position() == start) {
+            writer.discardFrom(start, holds);
+            _reportError("Map key was not written: its serializer produced no value");
+        }
+    }
+
     private void packKey(Object key) throws IOException
     {
         if (key instanceof String) {
@@ -232,16 +271,10 @@ public class MessagePackGenerator
             // Any other key type is serialized as a nested value in key position, straight into
             // this generator's writer. The nested generator only tracks its own context stack,
             // but starts counting depth where this one is so the nesting limit still holds.
-            int start = writer.position();
             try (MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
                     writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
                 objectWriteContext().writeValue(nested, key);
-            }
-            if (writer.position() == start) {
-                // The serializer left the key unfinished and closing the nested generator
-                // discarded it. Writing the value now would produce an entry with no key.
-                _reportError("Map key was not written: its serializer left the value unfinished");
             }
         }
     }
@@ -353,8 +386,10 @@ public class MessagePackGenerator
             if (!writeContext.acceptsName()) {
                 _reportError("Can not write a property id, expecting a value");
             }
-            writeContext.setName(String.valueOf(id));
+            String asName = String.valueOf(id);
+            writeContext.checkDuplicate(asName);
             pack(w -> w.packLong(id));
+            writeContext.setName(asName);
         }
         else {
             writeName(String.valueOf(id));
@@ -375,9 +410,12 @@ public class MessagePackGenerator
         if (!writeContext.acceptsName()) {
             _reportError("Can not write a property name, expecting a value");
         }
+        // The name is recorded only once its bytes are in the buffer: a failure in between
+        // would otherwise leave the context expecting a value for a name nobody wrote.
+        writeContext.checkDuplicate(name);
         MessagePackWriter.checkEncodable(name);
-        writeContext.setName(name);
         pack(w -> w.packString(name));
+        writeContext.setName(name);
         return this;
     }
 
@@ -390,9 +428,11 @@ public class MessagePackGenerator
                 _reportError("Can not write a property name, expecting a value");
             }
             Object raw = ((MessagePackSerializedString) name).getRawValue();
+            String asName = name.getValue();
+            writeContext.checkDuplicate(asName);
             checkKeyRepresentable(raw);
-            writeContext.setName(name.getValue());
-            pack(w -> packKey(raw));
+            writeKeyBytes(raw);
+            writeContext.setName(asName);
         }
         else {
             writeName(name.getValue());
