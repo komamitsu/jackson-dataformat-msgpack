@@ -418,6 +418,10 @@ public class MessagePackParser
             case BYTES:
                 return bytesValue;
             case STRING:
+                // Deliberately the raw UTF-8 bytes rather than Jackson's base64 decoding of a
+                // String token: MessagePack before the bin type (0.6) stored binary data as
+                // str, and this is what lets that data bind to a byte[]. Data written by this
+                // library uses the bin type and takes the branch above.
                 return stringValue.getBytes(StandardCharsets.UTF_8);
             case EXT:
                 return extensionTypeValue.getData();
