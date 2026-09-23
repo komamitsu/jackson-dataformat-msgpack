@@ -104,7 +104,7 @@ public class MessagePackParser
             return _updateTokenToNull();
         }
         try {
-            return _nextToken();
+            return nextTokenOrThrow();
         }
         catch (EOFException e) {
             throw new UnexpectedEndOfInputException(this, _currToken, e.getMessage());
@@ -114,20 +114,22 @@ public class MessagePackParser
         }
     }
 
-    private JsonToken _nextToken() throws IOException
+    private JsonToken nextTokenOrThrow() throws IOException
     {
         type = null;
         tokenPosition = reader.getTotalReadBytes();
 
         boolean isObjectValueSet = streamReadContext.inObject() && _currToken != JsonToken.PROPERTY_NAME;
         if (isObjectValueSet) {
-            if (!streamReadContext.expectMoreValues()) {
+            streamReadContext.advance();
+            if (streamReadContext.atEnd()) {
                 streamReadContext = streamReadContext.getParent();
                 return _updateToken(JsonToken.END_OBJECT);
             }
         }
         else if (streamReadContext.inArray()) {
-            if (!streamReadContext.expectMoreValues()) {
+            streamReadContext.advance();
+            if (streamReadContext.atEnd()) {
                 streamReadContext = streamReadContext.getParent();
                 return _updateToken(JsonToken.END_ARRAY);
             }

@@ -308,10 +308,7 @@ public class MessagePackGenerator
 
     private void verifyValueWrite()
     {
-        checkNotClosed();
-        if (!writeContext.writeValue()) {
-            _reportError("Cannot write value: expecting a property name in Object context");
-        }
+        _verifyValueWrite("write a value");
     }
 
     // Every write goes through here or through a name write. After close() the writer has
@@ -328,9 +325,10 @@ public class MessagePackGenerator
     {
         checkNotClosed();
         if (this.supportIntegerKeys) {
-            if (!writeContext.writeName(String.valueOf(id))) {
+            if (!writeContext.acceptsName()) {
                 _reportError("Can not write a property id, expecting a value");
             }
+            writeContext.setName(String.valueOf(id));
             pack(w -> w.packLong(id));
         }
         else {
@@ -349,9 +347,10 @@ public class MessagePackGenerator
     public JsonGenerator writeName(String name) throws JacksonException
     {
         checkNotClosed();
-        if (!writeContext.writeName(name)) {
+        if (!writeContext.acceptsName()) {
             _reportError("Can not write a property name, expecting a value");
         }
+        writeContext.setName(name);
         pack(w -> w.packString(name));
         return this;
     }
@@ -361,9 +360,10 @@ public class MessagePackGenerator
     {
         checkNotClosed();
         if (name instanceof MessagePackSerializedString) {
-            if (!writeContext.writeName(name.getValue())) {
+            if (!writeContext.acceptsName()) {
                 _reportError("Can not write a property name, expecting a value");
             }
+            writeContext.setName(name.getValue());
             pack(w -> packKey(((MessagePackSerializedString) name).getRawValue()));
         }
         else {
@@ -698,8 +698,9 @@ public class MessagePackGenerator
     protected void _verifyValueWrite(String typeMsg) throws JacksonException
     {
         checkNotClosed();
-        if (!writeContext.writeValue()) {
+        if (!writeContext.acceptsValue()) {
             _reportError("Cannot " + typeMsg + ", expecting a property name");
         }
+        writeContext.countValue();
     }
 }

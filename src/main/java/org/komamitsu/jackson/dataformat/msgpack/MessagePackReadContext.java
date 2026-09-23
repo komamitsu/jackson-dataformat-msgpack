@@ -28,25 +28,25 @@ import tools.jackson.core.json.DupDetector;
 public final class MessagePackReadContext
     extends TokenStreamContext
 {
-    protected final MessagePackReadContext parent;
+    private final MessagePackReadContext parent;
 
-    protected final DupDetector dups;
+    private final DupDetector dups;
 
     /**
      * For fixed-size Arrays, Objects, this indicates expected number of entries.
      */
-    protected int expEntryCount;
+    private int expEntryCount;
 
-    protected String currentName;
+    private String currentName;
 
-    protected Object currentValue;
+    private Object currentValue;
 
-    protected MessagePackReadContext child = null;
+    private MessagePackReadContext child;
 
     // Whether a nil key was already seen in this object, for duplicate detection.
     private boolean sawNullName;
 
-    public MessagePackReadContext(MessagePackReadContext parent, DupDetector dups,
+    private MessagePackReadContext(MessagePackReadContext parent, DupDetector dups,
                                   int type, int expEntryCount)
     {
         super();
@@ -58,7 +58,7 @@ public final class MessagePackReadContext
         _nestingDepth = parent == null ? 0 : parent._nestingDepth + 1;
     }
 
-    protected void reset(int type, int expEntryCount)
+    private void reset(int type, int expEntryCount)
     {
         _type = type;
         this.expEntryCount = expEntryCount;
@@ -83,12 +83,12 @@ public final class MessagePackReadContext
         currentValue = v;
     }
 
-    public static MessagePackReadContext createRootContext(DupDetector dups)
+    static MessagePackReadContext createRootContext(DupDetector dups)
     {
         return new MessagePackReadContext(null, dups, TYPE_ROOT, -1);
     }
 
-    public MessagePackReadContext createChildArrayContext(int expEntryCount)
+    MessagePackReadContext createChildArrayContext(int expEntryCount)
     {
         MessagePackReadContext ctxt = child;
         if (ctxt == null) {
@@ -103,7 +103,7 @@ public final class MessagePackReadContext
         return ctxt;
     }
 
-    public MessagePackReadContext createChildObjectContext(int expEntryCount)
+    MessagePackReadContext createChildObjectContext(int expEntryCount)
     {
         MessagePackReadContext ctxt = child;
         if (ctxt == null) {
@@ -129,12 +129,18 @@ public final class MessagePackReadContext
         return parent;
     }
 
-    public boolean expectMoreValues()
+    /**
+     * Moves on to the next entry of this container. The count comes from the container's
+     * header, so the end is reached by counting rather than by reading a terminator.
+     */
+    void advance()
     {
-        if (++_index == expEntryCount) {
-            return false;
-        }
-        return true;
+        ++_index;
+    }
+
+    boolean atEnd()
+    {
+        return _index == expEntryCount;
     }
 
     public TokenStreamLocation startLocation(ContentReference srcRef)
@@ -142,15 +148,15 @@ public final class MessagePackReadContext
         return new TokenStreamLocation(srcRef, 1L, -1, -1);
     }
 
-    public void setCurrentName(String name)
+    void setCurrentName(String name)
     {
         currentName = name;
         if (dups != null) {
-            _checkDup(dups, name);
+            checkDup(dups, name);
         }
     }
 
-    private void _checkDup(DupDetector dd, String name)
+    private void checkDup(DupDetector dd, String name)
     {
         // A nil key has no String for DupDetector, so it is tracked here.
         boolean dup;

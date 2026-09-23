@@ -78,6 +78,11 @@ final class MessagePackReader
         return posBase + pos;
     }
 
+    /**
+     * Whether another value begins here. Despite the name this is not a passive check: on a
+     * stream with an empty buffer it blocks for one more byte and may compact the buffer,
+     * which moves pos and posBase. It does not consume the byte it waits for.
+     */
     boolean hasNext() throws IOException
     {
         if (pos < end) {
@@ -86,6 +91,9 @@ final class MessagePackReader
         return in != null && fillAtLeast(1);
     }
 
+    /**
+     * The format byte of the next value, left unconsumed. May read from the stream to get it.
+     */
     MessageFormat getNextFormat() throws IOException
     {
         ensure(1);

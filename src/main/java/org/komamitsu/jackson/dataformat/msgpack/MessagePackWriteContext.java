@@ -118,32 +118,36 @@ class MessagePackWriteContext extends TokenStreamContext
         return _type == TYPE_OBJECT && gotName;
     }
 
-    boolean writeValue()
+    boolean acceptsValue()
     {
-        if (_type == TYPE_OBJECT) {
-            if (!gotName) {
-                return false;
-            }
-            gotName = false;
-        }
-        ++_index;
-        return true;
+        return _type != TYPE_OBJECT || gotName;
     }
 
-    boolean writeName(String name) throws StreamWriteException
+    /**
+     * Counts one entry of this container. The count is what closeContainer patches into the
+     * reserved header, so every value must pass through here exactly once.
+     */
+    void countValue()
     {
-        if (_type != TYPE_OBJECT || gotName) {
-            return false;
-        }
+        gotName = false;
+        ++_index;
+    }
+
+    boolean acceptsName()
+    {
+        return _type == TYPE_OBJECT && !gotName;
+    }
+
+    void setName(String name) throws StreamWriteException
+    {
         currentName = name;
         gotName = true;
         if (dups != null) {
-            _checkDup(name);
+            checkDup(name);
         }
-        return true;
     }
 
-    private void _checkDup(String name) throws StreamWriteException
+    private void checkDup(String name) throws StreamWriteException
     {
         // A nil key has no String for DupDetector, so it is tracked here.
         boolean dup;
