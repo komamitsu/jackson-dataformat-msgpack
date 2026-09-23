@@ -53,7 +53,6 @@ public class MessagePackGenerator
     private final OutputStream output;
     private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
-    private final boolean containerMapKeySupport;
     private MessagePackWriteContext writeContext;
 
     public MessagePackGenerator(
@@ -62,12 +61,11 @@ public class MessagePackGenerator
             int streamWriteFeatures,
             OutputStream out,
             boolean str8FormatSupport,
-            boolean supportIntegerKeys,
-            boolean containerMapKeySupport)
+            boolean supportIntegerKeys)
     {
         this(writeCtxt, ioCtxt, streamWriteFeatures, out,
                 new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, 0, str8FormatSupport,
-                supportIntegerKeys, containerMapKeySupport);
+                supportIntegerKeys);
     }
 
     private MessagePackGenerator(
@@ -79,8 +77,7 @@ public class MessagePackGenerator
             boolean ownsWriter,
             int nestingDepth,
             boolean str8FormatSupport,
-            boolean supportIntegerKeys,
-            boolean containerMapKeySupport)
+            boolean supportIntegerKeys)
     {
         super(writeCtxt, ioCtxt, streamWriteFeatures);
         this.output = out;
@@ -89,7 +86,6 @@ public class MessagePackGenerator
         this.baseHoldDepth = writer.holdDepth();
         this.str8FormatSupport = str8FormatSupport;
         this.supportIntegerKeys = supportIntegerKeys;
-        this.containerMapKeySupport = containerMapKeySupport;
         this.writeContext = MessagePackWriteContext.createRootContext(
                 StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
                         ? DupDetector.rootDetector(this) : null,
@@ -222,8 +218,7 @@ public class MessagePackGenerator
      *
      * <p>A key must encode to exactly one scalar value, which is checked in three steps: the
      * nested generator must have written one root value (counted in {@link #packKey}), that
-     * value must have reached the buffer, and it must not be a map or an array unless
-     * {@code containerMapKeySupport} is set.
+     * value must have reached the buffer, and it must not be a map or an array.
      *
      * <p>The middle step looks redundant but is not. A complex key is written by a nested
      * generator sharing this writer, and with AUTO_CLOSE_CONTENT off an unfinished key is
@@ -258,17 +253,14 @@ public class MessagePackGenerator
             writer.discardFrom(start, holds);
             _reportError("Map key was not written: its serializer produced no bytes");
         }
-        if (!containerMapKeySupport) {
-            MessageFormat.ValueType keyType = writer.formatAt(start).getValueType();
-            if (keyType == MessageFormat.ValueType.ARRAY || keyType == MessageFormat.ValueType.MAP) {
-                // No property name can represent a container, so this parser rejects such a key
-                // on read, as do most other implementations. Writing one produces data nothing
-                // here can load again, so it is refused unless the factory opts in.
-                writer.discardFrom(start, holds);
-                _reportError("A " + (keyType == MessageFormat.ValueType.MAP ? "map" : "array")
-                        + " cannot be used as a map key: no property name can represent it. "
-                        + "Enable containerMapKeySupport on the factory if the consumer handles it");
-            }
+        MessageFormat.ValueType keyType = writer.formatAt(start).getValueType();
+        if (keyType == MessageFormat.ValueType.ARRAY || keyType == MessageFormat.ValueType.MAP) {
+            // No property name can represent a container, so this parser rejects such a key on
+            // read, as do most other implementations. Writing one would produce data nothing
+            // here can load again.
+            writer.discardFrom(start, holds);
+            _reportError((keyType == MessageFormat.ValueType.MAP ? "A map" : "An array")
+                    + " cannot be used as a map key: no property name can represent it");
         }
     }
 
@@ -313,8 +305,7 @@ public class MessagePackGenerator
             // but starts counting depth where this one is so the nesting limit still holds.
             MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
-                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys,
-                    containerMapKeySupport);
+                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys);
             try (nested) {
                 objectWriteContext().writeValue(nested, key);
             }

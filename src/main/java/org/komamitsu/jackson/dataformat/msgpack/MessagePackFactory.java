@@ -50,10 +50,6 @@ public class MessagePackFactory
 
     private boolean str8FormatSupport = true;
     private boolean supportIntegerKeys = false;
-    // Whether a map or array may be written as a map key. Off by default: no property
-    // name can represent one, so this parser and most other implementations cannot read
-    // such data back. See the README.
-    private boolean containerMapKeySupport = false;
     private ExtensionTypeCustomDeserializers extTypeCustomDesers;
 
     public MessagePackFactory()
@@ -67,7 +63,6 @@ public class MessagePackFactory
         super(src);
         this.str8FormatSupport = src.str8FormatSupport;
         this.supportIntegerKeys = src.supportIntegerKeys;
-        this.containerMapKeySupport = src.containerMapKeySupport;
         if (src.extTypeCustomDesers != null) {
             this.extTypeCustomDesers = new ExtensionTypeCustomDeserializers(src.extTypeCustomDesers);
         }
@@ -78,7 +73,6 @@ public class MessagePackFactory
         super(b);
         this.str8FormatSupport = b.str8FormatSupport();
         this.supportIntegerKeys = b.supportIntegerKeys();
-        this.containerMapKeySupport = b.containerMapKeySupport();
         this.extTypeCustomDesers = b.extTypeCustomDesers();
     }
 
@@ -89,12 +83,6 @@ public class MessagePackFactory
     public MessagePackFactory setStr8FormatSupport(boolean str8FormatSupport)
     {
         this.str8FormatSupport = str8FormatSupport;
-        return this;
-    }
-
-    public MessagePackFactory setContainerMapKeySupport(boolean containerMapKeySupport)
-    {
-        this.containerMapKeySupport = containerMapKeySupport;
         return this;
     }
 
@@ -153,7 +141,7 @@ public class MessagePackFactory
     {
         return new MessagePackGenerator(writeCtxt, ioCtxt,
                 writeCtxt.getStreamWriteFeatures(_streamWriteFeatures),
-                out, str8FormatSupport, supportIntegerKeys, containerMapKeySupport);
+                out, str8FormatSupport, supportIntegerKeys);
     }
 
     // The symbol table is transient, so a deserialized instance is replaced by a copy that
@@ -197,11 +185,6 @@ public class MessagePackFactory
     boolean isSupportIntegerKeys()
     {
         return supportIntegerKeys;
-    }
-
-    boolean isContainerMapKeySupport()
-    {
-        return containerMapKeySupport;
     }
 
     @VisibleForTesting
