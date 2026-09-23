@@ -47,6 +47,9 @@ public class MessagePackGenerator
     private final MessagePackWriter writer;
     // False for a nested generator writing a complex key into its parent's writer.
     private final boolean ownsWriter;
+    // Containers the writer already had open when this generator was created: zero for the
+    // owning generator, the parent's depth for a nested one writing a complex map key.
+    private final int baseHoldDepth;
     private final OutputStream output;
     private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
@@ -79,6 +82,7 @@ public class MessagePackGenerator
         this.output = out;
         this.writer = writer;
         this.ownsWriter = ownsWriter;
+        this.baseHoldDepth = writer.holdDepth();
         this.str8FormatSupport = str8FormatSupport;
         this.supportIntegerKeys = supportIntegerKeys;
         this.writeContext = MessagePackWriteContext.createRootContext(
@@ -396,6 +400,8 @@ public class MessagePackGenerator
         if (text == null) {
             return writeNull();
         }
+        // Checked before the entry is counted, as for a property name.
+        MessagePackWriter.checkEncodable(text);
         return writeValue(w -> w.packString(text));
     }
 
@@ -640,7 +646,7 @@ public class MessagePackGenerator
                 while (!outermost.getParent().inRoot()) {
                     outermost = outermost.getParent();
                 }
-                writer.discardFrom(outermost.headerOffset());
+                writer.discardFrom(outermost.headerOffset(), baseHoldDepth);
                 writeContext = outermost.getParent();
                 flush();
             }
