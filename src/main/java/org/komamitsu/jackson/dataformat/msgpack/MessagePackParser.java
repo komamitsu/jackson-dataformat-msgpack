@@ -119,7 +119,7 @@ public class MessagePackParser
         type = null;
         tokenPosition = reader.getTotalReadBytes();
 
-        boolean isObjectValueSet = streamReadContext.inObject() && _currToken != JsonToken.PROPERTY_NAME;
+        boolean isObjectValueSet = streamReadContext.atNamePosition();
         if (isObjectValueSet) {
             streamReadContext.advance();
             if (streamReadContext.atEnd()) {
@@ -133,6 +133,9 @@ public class MessagePackParser
                 streamReadContext = streamReadContext.getParent();
                 return _updateToken(JsonToken.END_ARRAY);
             }
+        }
+        else if (streamReadContext.inObject()) {
+            streamReadContext.valueRead();
         }
 
         if (!reader.hasNext()) {

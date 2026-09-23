@@ -1200,6 +1200,39 @@ public class MessagePackParserTest
         assertEquals(0, closeCount[0], "the caller keeps the stream, so it must not be closed");
     }
 
+    // clearCurrentToken() is public API: it hides the current token without consuming input.
+    // Map parsing must not read its key/value phase from the current token, or the value that
+    // follows a cleared name is mistaken for the next name and the map desynchronises.
+    @Test
+    public void testClearCurrentTokenDoesNotDesynchroniseAMap()
+            throws IOException
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(out)) {
+            packer.packMapHeader(2);
+            packer.packString("a").packInt(1);
+            packer.packString("b").packInt(2);
+        }
+
+        try (JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), out.toByteArray())) {
+            assertEquals(JsonToken.START_OBJECT, p.nextToken());
+            assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+            assertEquals("a", p.currentName());
+
+            p.clearCurrentToken();
+            assertNull(p.currentToken());
+
+            assertEquals(JsonToken.VALUE_NUMBER_INT, p.nextToken());
+            assertEquals(1, p.getIntValue());
+            assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+            assertEquals("b", p.currentName());
+            assertEquals(JsonToken.VALUE_NUMBER_INT, p.nextToken());
+            assertEquals(2, p.getIntValue());
+            assertEquals(JsonToken.END_OBJECT, p.nextToken());
+            assertNull(p.nextToken());
+        }
+    }
+
     @Test
     public void testGetStringOnNullToken() throws IOException
     {

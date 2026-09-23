@@ -46,6 +46,11 @@ public final class MessagePackReadContext
     // Whether a nil key was already seen in this object, for duplicate detection.
     private boolean sawNullName;
 
+    // For TYPE_OBJECT: true once this entry's name has been read, so the next token is its
+    // value. Kept here rather than derived from the parser's current token, which callers may
+    // clear with clearCurrentToken() without consuming any input.
+    private boolean gotName;
+
     private MessagePackReadContext(MessagePackReadContext parent, DupDetector dups,
                                   int type, int expEntryCount)
     {
@@ -66,6 +71,7 @@ public final class MessagePackReadContext
         currentName = null;
         currentValue = null;
         sawNullName = false;
+        gotName = false;
         if (dups != null) {
             dups.reset();
         }
@@ -148,8 +154,25 @@ public final class MessagePackReadContext
         return new TokenStreamLocation(srcRef, 1L, -1, -1);
     }
 
+    /**
+     * Whether the next token of this object is an entry's name rather than its value.
+     */
+    boolean atNamePosition()
+    {
+        return _type == TYPE_OBJECT && !gotName;
+    }
+
+    /**
+     * Records that the name's value is being read, so the entry after it starts a new name.
+     */
+    void valueRead()
+    {
+        gotName = false;
+    }
+
     void setCurrentName(String name)
     {
+        gotName = true;
         currentName = name;
         if (dups != null) {
             checkDup(dups, name);
