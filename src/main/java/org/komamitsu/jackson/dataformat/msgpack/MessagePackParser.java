@@ -170,38 +170,34 @@ public class MessagePackParser
                 break;
             }
             case INTEGER:
-                Object v;
-                switch (format) {
-                    case UINT64:
-                        BigInteger bi = reader.unpackBigInteger();
-                        if (0 <= bi.compareTo(LONG_MIN) && bi.compareTo(LONG_MAX) <= 0) {
-                            type = Type.LONG;
-                            longValue = bi.longValue();
-                            v = longValue;
-                        }
-                        else {
-                            type = Type.BIG_INT;
-                            biValue = bi;
-                            v = biValue;
-                        }
-                        break;
-                    default:
-                        long l = reader.unpackLong();
-                        if (Integer.MIN_VALUE <= l && l <= Integer.MAX_VALUE) {
-                            type = Type.INT;
-                            intValue = (int) l;
-                            v = intValue;
-                        }
-                        else {
-                            type = Type.LONG;
-                            longValue = l;
-                            v = longValue;
-                        }
-                        break;
+                // Only uint64 can exceed a long; everything else fits and is read as one.
+                if (format == MessageFormat.UINT64) {
+                    BigInteger bi = reader.unpackBigInteger();
+                    if (0 <= bi.compareTo(LONG_MIN) && bi.compareTo(LONG_MAX) <= 0) {
+                        type = Type.LONG;
+                        longValue = bi.longValue();
+                    }
+                    else {
+                        type = Type.BIG_INT;
+                        biValue = bi;
+                    }
+                }
+                else {
+                    long l = reader.unpackLong();
+                    if (Integer.MIN_VALUE <= l && l <= Integer.MAX_VALUE) {
+                        type = Type.INT;
+                        intValue = (int) l;
+                    }
+                    else {
+                        type = Type.LONG;
+                        longValue = l;
+                    }
                 }
 
                 if (isObjectValueSet) {
-                    streamReadContext.setCurrentName(String.valueOf(v));
+                    // Formatted from the field that was set, so a value that is not a key
+                    // never gets boxed into a Number just to be discarded.
+                    streamReadContext.setCurrentName(integerAsName());
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
@@ -299,6 +295,17 @@ public class MessagePackParser
 
     // A declared payload length is checked before anything is allocated for it. Keys get
     // the tighter name limit, values the string limit.
+    private String integerAsName()
+    {
+        if (type == Type.INT) {
+            return String.valueOf(intValue);
+        }
+        if (type == Type.LONG) {
+            return String.valueOf(longValue);
+        }
+        return biValue.toString();
+    }
+
     private void validateLength(int len, boolean isKey) throws JacksonException
     {
         if (isKey) {
