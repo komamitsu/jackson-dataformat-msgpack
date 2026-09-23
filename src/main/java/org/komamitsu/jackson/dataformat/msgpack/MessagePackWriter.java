@@ -355,6 +355,14 @@ final class MessagePackWriter
     }
 
     /**
+     * The format of the value that starts at the given offset, which must already be encoded.
+     */
+    MessageFormat formatAt(int offset)
+    {
+        return MessageFormat.valueOf(buf[offset]);
+    }
+
+    /**
      * Bytes encoded but not yet written to the stream.
      */
     int pending()

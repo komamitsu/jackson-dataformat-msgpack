@@ -226,6 +226,21 @@ SimpleModule module = new SimpleModule().addKeySerializer(Object.class, new Mess
 ObjectMapper objectMapper = MessagePackMapper.builder().addModule(module).build();
 ```
 
+Keys of any scalar type work in both directions: integers, floats, booleans, nil, binary and
+extension values are written natively and come back as property names, which a `KeyDeserializer`
+turns into the type you want (the `Map<Integer, String>` above needs no extra configuration).
+
+A key that encodes to a **map or an array** is refused, because no property name can represent
+one. Such a key is also a portability hazard: this parser rejects it on read, msgpack-python
+accepts only `str` and `bytes` keys by default (`strict_map_key`), and Go cannot use a decoded
+map as a map key at all. If your consumer does handle it, msgpack-ruby and msgpack-java's own
+`Value` API do, enable it explicitly and be aware the data will not load through this library:
+
+```java
+ObjectMapper objectMapper = new MessagePackMapper(
+        new MessagePackFactory().setContainerMapKeySupport(true));
+```
+
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
 By default, for backward compatibility, a BigDecimal is written as a MessagePack integer if it has no fractional part, and otherwise as a float64 if that represents it exactly. A value that fits neither (too many digits for a double, or a magnitude beyond 64-bit integers) fails with `IllegalArgumentException`. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.

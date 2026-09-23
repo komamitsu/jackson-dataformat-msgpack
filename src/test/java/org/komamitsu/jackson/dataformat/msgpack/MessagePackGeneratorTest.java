@@ -756,7 +756,7 @@ public class MessagePackGeneratorTest
 
         SimpleModule mod = new SimpleModule("test");
         mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
-        ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
+        ObjectMapper objectMapper = MessagePackMapper.builder(withContainerMapKeys())
                 .addModule(mod)
                 .build();
         byte[] bytes = objectMapper.writeValueAsBytes(map);
@@ -780,7 +780,7 @@ public class MessagePackGeneratorTest
 
         SimpleModule mod = new SimpleModule("test");
         mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
-        ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
+        ObjectMapper objectMapper = MessagePackMapper.builder(withContainerMapKeys())
                 .annotationIntrospector(new JsonArrayFormat())
                 .addModule(mod)
                 .build();
@@ -1398,10 +1398,10 @@ public class MessagePackGeneratorTest
         mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
         Map<KeyWithList, Integer> map = Collections.singletonMap(new KeyWithList("k", Arrays.asList(1)), 1);
 
-        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).addModule(mod).build();
+        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2).setContainerMapKeySupport(true)).addModule(mod).build();
         assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> limitedToTwo.writeValueAsBytes(map));
 
-        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).addModule(mod).build();
+        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3).setContainerMapKeySupport(true)).addModule(mod).build();
         byte[] bytes = limitedToThree.writeValueAsBytes(map);
         assertEquals((byte) 0x81, bytes[0]);
     }
@@ -1420,7 +1420,7 @@ public class MessagePackGeneratorTest
         // parent map's reserved header and the value that follows.
         SimpleModule mod = new SimpleModule("test");
         mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+        ObjectMapper mapper = MessagePackMapper.builder(withContainerMapKeys()).addModule(mod).build();
 
         Map<KeyWithList, List<String>> map = new java.util.LinkedHashMap<>();
         map.put(new KeyWithList("first", Arrays.asList(1, 2, 3)), Arrays.asList("a", "b"));
@@ -1668,6 +1668,37 @@ public class MessagePackGeneratorTest
         }
     }
 
+    private static MessagePackFactory withContainerMapKeys()
+    {
+        return new MessagePackFactory().setContainerMapKeySupport(true);
+    }
+
+    // A key that encodes to a map or an array cannot be read back, by this parser or by most
+    // other implementations, so writing one is refused unless the factory opts in.
+    @Test
+    public void aContainerKeyIsRefusedByDefault()
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+        JacksonException e = assertThrows(JacksonException.class,
+                () -> mapper.writeValueAsBytes(Collections.singletonMap(pojo, 42)));
+        assertTrue(e.getMessage().contains("cannot be used as a map key"), e.getMessage());
+    }
+
+    public static class StringKeySerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            gen.writeString(value.t);
+        }
+    }
+
     // Fails the first time it is asked to write a key, then works.
     public static class FlakySerializer
             extends ValueSerializer<TinyPojo>
@@ -1682,6 +1713,27 @@ public class MessagePackGeneratorTest
                 return;
             }
             gen.writeString(value.t);
+        }
+    }
+
+    // The check is on what the key encoded to, not on the Java type: a POJO whose serializer
+    // writes a scalar is a perfectly readable key.
+    @Test
+    public void aPojoKeyThatEncodesToAScalarIsAllowed() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new StringKeySerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+        byte[] bytes = mapper.writeValueAsBytes(Collections.singletonMap(pojo, 42));
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("foo", unpacker.unpackString());
+            assertEquals(42, unpacker.unpackInt());
         }
     }
 
@@ -1736,7 +1788,7 @@ public class MessagePackGeneratorTest
         SimpleModule mod = new SimpleModule("test");
         mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
         mod.addSerializer(TinyPojo.class, new UnfinishedSerializer());
-        return MessagePackMapper.builder(new MessagePackFactory())
+        return MessagePackMapper.builder(withContainerMapKeys())
                 .configure(StreamWriteFeature.AUTO_CLOSE_CONTENT, autoCloseContent)
                 .addModule(mod)
                 .build();

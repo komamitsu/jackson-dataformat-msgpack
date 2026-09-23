@@ -25,6 +25,7 @@ public class MessagePackFactoryBuilder
 {
     private boolean str8FormatSupport;
     private boolean supportIntegerKeys;
+    private boolean containerMapKeySupport;
     private ExtensionTypeCustomDeserializers extTypeCustomDesers;
 
     public MessagePackFactoryBuilder()
@@ -33,6 +34,7 @@ public class MessagePackFactoryBuilder
                 ErrorReportConfiguration.defaults(), 0, 0);
         this.str8FormatSupport = true;
         this.supportIntegerKeys = false;
+        this.containerMapKeySupport = false;
     }
 
     public MessagePackFactoryBuilder(MessagePackFactory base)
@@ -40,6 +42,7 @@ public class MessagePackFactoryBuilder
         super(base);
         this.str8FormatSupport = base.isStr8FormatSupport();
         this.supportIntegerKeys = base.isSupportIntegerKeys();
+        this.containerMapKeySupport = base.isContainerMapKeySupport();
         ExtensionTypeCustomDeserializers srcDesers = base.getExtTypeCustomDesers();
         this.extTypeCustomDesers = srcDesers == null ? null : new ExtensionTypeCustomDeserializers(srcDesers);
     }
@@ -51,6 +54,12 @@ public class MessagePackFactoryBuilder
     public MessagePackFactoryBuilder str8FormatSupport(boolean v)
     {
         this.str8FormatSupport = v;
+        return this;
+    }
+
+    public MessagePackFactoryBuilder containerMapKeySupport(boolean v)
+    {
+        this.containerMapKeySupport = v;
         return this;
     }
 
@@ -74,6 +83,11 @@ public class MessagePackFactoryBuilder
     public boolean supportIntegerKeys()
     {
         return supportIntegerKeys;
+    }
+
+    public boolean containerMapKeySupport()
+    {
+        return containerMapKeySupport;
     }
 
     public ExtensionTypeCustomDeserializers extTypeCustomDesers()

@@ -53,6 +53,7 @@ public class MessagePackGenerator
     private final OutputStream output;
     private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
+    private final boolean containerMapKeySupport;
     private MessagePackWriteContext writeContext;
 
     public MessagePackGenerator(
@@ -61,10 +62,12 @@ public class MessagePackGenerator
             int streamWriteFeatures,
             OutputStream out,
             boolean str8FormatSupport,
-            boolean supportIntegerKeys)
+            boolean supportIntegerKeys,
+            boolean containerMapKeySupport)
     {
         this(writeCtxt, ioCtxt, streamWriteFeatures, out,
-                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, 0, str8FormatSupport, supportIntegerKeys);
+                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, 0, str8FormatSupport,
+                supportIntegerKeys, containerMapKeySupport);
     }
 
     private MessagePackGenerator(
@@ -76,7 +79,8 @@ public class MessagePackGenerator
             boolean ownsWriter,
             int nestingDepth,
             boolean str8FormatSupport,
-            boolean supportIntegerKeys)
+            boolean supportIntegerKeys,
+            boolean containerMapKeySupport)
     {
         super(writeCtxt, ioCtxt, streamWriteFeatures);
         this.output = out;
@@ -85,6 +89,7 @@ public class MessagePackGenerator
         this.baseHoldDepth = writer.holdDepth();
         this.str8FormatSupport = str8FormatSupport;
         this.supportIntegerKeys = supportIntegerKeys;
+        this.containerMapKeySupport = containerMapKeySupport;
         this.writeContext = MessagePackWriteContext.createRootContext(
                 StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
                         ? DupDetector.rootDetector(this) : null,
@@ -246,6 +251,18 @@ public class MessagePackGenerator
             writer.discardFrom(start, holds);
             _reportError("Map key was not written: its serializer produced no value");
         }
+        if (!containerMapKeySupport) {
+            MessageFormat.ValueType keyType = writer.formatAt(start).getValueType();
+            if (keyType == MessageFormat.ValueType.ARRAY || keyType == MessageFormat.ValueType.MAP) {
+                // No property name can represent a container, so this parser rejects such a key
+                // on read, as do most other implementations. Writing one produces data nothing
+                // here can load again, so it is refused unless the factory opts in.
+                writer.discardFrom(start, holds);
+                _reportError("A " + (keyType == MessageFormat.ValueType.MAP ? "map" : "array")
+                        + " cannot be used as a map key: no property name can represent it. "
+                        + "Enable containerMapKeySupport on the factory if the consumer handles it");
+            }
+        }
     }
 
     private void packKey(Object key) throws IOException
@@ -289,7 +306,8 @@ public class MessagePackGenerator
             // but starts counting depth where this one is so the nesting limit still holds.
             try (MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
-                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
+                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys,
+                    containerMapKeySupport)) {
                 objectWriteContext().writeValue(nested, key);
             }
         }
