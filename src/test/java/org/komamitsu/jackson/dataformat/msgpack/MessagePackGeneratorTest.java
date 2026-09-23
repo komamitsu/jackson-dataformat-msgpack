@@ -1699,6 +1699,45 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Writes two root values where a key stands for one.
+    public static class TwoValueSerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            gen.writeString(value.t);
+            gen.writeString("extra");
+        }
+    }
+
+    // The second value would sit where the map's value belongs, so the map header would count
+    // one entry over three values. Refused, with nothing left in the buffer.
+    @Test
+    public void aKeyThatWritesTwoValuesIsRefused() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new TwoValueSerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            JacksonException e = assertThrows(JacksonException.class,
+                    () -> gen.writeName(new MessagePackSerializedString(pojo)));
+            assertTrue(e.getMessage().contains("single value"), e.getMessage());
+        }
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(0, unpacker.unpackMapHeader());
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
     // Fails the first time it is asked to write a key, then works.
     public static class FlakySerializer
             extends ValueSerializer<TinyPojo>

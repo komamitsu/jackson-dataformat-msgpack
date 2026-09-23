@@ -248,8 +248,10 @@ public class MessagePackGenerator
             throw e;
         }
         if (writer.position() == start) {
+            // Counted as a value but nothing reached the buffer: the nested generator discarded
+            // an unfinished key (AUTO_CLOSE_CONTENT off).
             writer.discardFrom(start, holds);
-            _reportError("Map key was not written: its serializer produced no value");
+            _reportError("Map key was not written: its serializer produced no bytes");
         }
         if (!containerMapKeySupport) {
             MessageFormat.ValueType keyType = writer.formatAt(start).getValueType();
@@ -304,11 +306,19 @@ public class MessagePackGenerator
             // Any other key type is serialized as a nested value in key position, straight into
             // this generator's writer. The nested generator only tracks its own context stack,
             // but starts counting depth where this one is so the nesting limit still holds.
-            try (MessagePackGenerator nested = new MessagePackGenerator(
+            MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
                     writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys,
-                    containerMapKeySupport)) {
+                    containerMapKeySupport);
+            try (nested) {
                 objectWriteContext().writeValue(nested, key);
+            }
+            // A name stands for one value. A serializer that wrote none leaves the entry with no
+            // key at all; one that wrote several leaves the extras where the map's next entry
+            // belongs, so both are refused and rolled back by the caller.
+            int written = nested.writeContext.getEntryCount();
+            if (written != 1) {
+                _reportError("A map key must be a single value, but its serializer wrote " + written);
             }
         }
     }
