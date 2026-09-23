@@ -100,8 +100,8 @@ public class MessagePackReaderTest
             reading.apply(reader);
             assertFalse(reader.hasNext(), "all input should be consumed");
             assertEquals(data.length, reader.getTotalReadBytes());
-            reader.close();
-            reader.release();
+            reader.closeSource();
+            reader.releaseBuffer();
         }
     }
 
@@ -440,19 +440,19 @@ public class MessagePackReaderTest
 
         MessagePackReader r1 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
         assertEquals("first value", r1.unpackString());
-        r1.release();
+        r1.releaseBuffer();
         assertEquals(data.length - 12, stream.available(), "exactly the string was consumed");
 
         MessagePackReader r2 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
         assertEquals(300, r2.unpackLong());
-        r2.release();
+        r2.releaseBuffer();
         assertEquals(2, stream.available());
 
         MessagePackReader r3 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
         assertEquals(1, r3.unpackArrayHeader());
         r3.unpackNil();
         assertFalse(r3.hasNext());
-        r3.release();
+        r3.releaseBuffer();
     }
 
     // A binary value goes through readPayload, which the small values of the test above do
@@ -473,13 +473,13 @@ public class MessagePackReaderTest
             int len = r1.unpackBinaryHeader();
             assertArrayEquals(payload, r1.readPayload(len));
             assertEquals(data.length - 1, r1.getTotalReadBytes());
-            r1.release();
+            r1.releaseBuffer();
             assertEquals(1, stream.available(), "only the binary value was consumed");
 
             MessagePackReader r2 = new MessagePackReader(MessagePackWriterTest.newIOContext(), stream, false);
             assertEquals(7, r2.unpackLong());
             assertFalse(r2.hasNext());
-            r2.release();
+            r2.releaseBuffer();
         }
     }
 
@@ -492,7 +492,7 @@ public class MessagePackReaderTest
         assertEquals("first value", reader.unpackString());
         assertEquals(0, stream.available(), "read ahead drains a small stream in one read");
         assertEquals(300, reader.unpackLong());
-        reader.release();
+        reader.releaseBuffer();
     }
 
     @Test
@@ -515,14 +515,14 @@ public class MessagePackReaderTest
         };
         MessagePackReader streamReader = new MessagePackReader(MessagePackWriterTest.newIOContext(), in, true);
         streamReader.unpackNil();
-        streamReader.close();
+        streamReader.closeSource();
         assertEquals(1, closed[0]);
-        streamReader.release();
+        streamReader.releaseBuffer();
 
         byte[] data = {(byte) 0xc0};
         MessagePackReader arrayReader = new MessagePackReader(data, 0, 1);
         arrayReader.unpackNil();
-        arrayReader.close();
-        arrayReader.release();
+        arrayReader.closeSource();
+        arrayReader.releaseBuffer();
     }
 }

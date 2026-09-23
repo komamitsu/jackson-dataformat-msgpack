@@ -476,14 +476,22 @@ final class MessagePackReader
         return result;
     }
 
-    void close() throws IOException
+    /**
+     * Closes the stream this reader was given, if any. Nothing else here needs closing; the
+     * buffer goes back to the pool through {@link #releaseBuffer()}, which the caller runs
+     * whether or not the source is closed.
+     */
+    void closeSource() throws IOException
     {
         if (in != null) {
             in.close();
         }
     }
 
-    void release()
+    /**
+     * Returns the borrowed buffer to the IOContext. The reader is unusable afterwards.
+     */
+    void releaseBuffer()
     {
         byte[] b = buf;
         if (recyclable && b != null) {

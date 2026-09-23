@@ -719,14 +719,14 @@ public class MessagePackParser
     protected void _closeInput() throws IOException
     {
         if (StreamReadFeature.AUTO_CLOSE_SOURCE.enabledIn(_streamReadFeatures)) {
-            reader.close();
+            reader.closeSource();
         }
     }
 
     @Override
     protected void _releaseBuffers()
     {
-        reader.release();
+        reader.releaseBuffer();
         if (symbols != null) {
             // Hands names learned by this parser back to the factory's shared table.
             symbols.release();
