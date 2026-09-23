@@ -15,6 +15,7 @@
 //
 package org.komamitsu.jackson.dataformat.msgpack;
 
+import tools.jackson.core.Base64Variants;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonToken;
@@ -43,6 +44,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -1230,6 +1232,32 @@ public class MessagePackParserTest
             assertEquals(2, p.getIntValue());
             assertEquals(JsonToken.END_OBJECT, p.nextToken());
             assertNull(p.nextToken());
+        }
+    }
+
+    // getBinaryValue on a String token returns its raw UTF-8 bytes, not the base64 decoding
+    // Jackson's JSON parser would apply. MessagePack 0.6 had no bin type and stored binary as
+    // str, and parserShouldReadStrAsBin depends on that data still binding to a byte[].
+    @Test
+    public void testBinaryValueOfAStringIsTheRawBytes()
+            throws IOException
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (MessagePacker packer = MessagePack.newDefaultPacker(out)) {
+            packer.packArrayHeader(2);
+            packer.packString("AQ==");
+            byte[] raw = {0x01, 0x02};
+            packer.packBinaryHeader(raw.length);
+            packer.writePayload(raw);
+        }
+
+        try (JsonParser p = new MessagePackFactory().createParser(ObjectReadContext.empty(), out.toByteArray())) {
+            assertEquals(JsonToken.START_ARRAY, p.nextToken());
+            assertEquals(JsonToken.VALUE_STRING, p.nextToken());
+            assertArrayEquals("AQ==".getBytes(StandardCharsets.UTF_8),
+                    p.getBinaryValue(Base64Variants.getDefaultVariant()));
+            assertEquals(JsonToken.VALUE_EMBEDDED_OBJECT, p.nextToken());
+            assertArrayEquals(new byte[] {0x01, 0x02}, p.getBinaryValue(Base64Variants.getDefaultVariant()));
         }
     }
 
