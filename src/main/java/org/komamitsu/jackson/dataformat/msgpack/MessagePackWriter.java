@@ -157,7 +157,7 @@ final class MessagePackWriter
             return;
         }
         // Too long to encode into the buffer in one go: count first, then write.
-        int byteLen = utf8Length(s);
+        int byteLen = checkedByteLength(utf8Length(s));
         packRawStringHeader(byteLen);
         if (holdDepth > 0) {
             grow(pos + byteLen);
@@ -166,6 +166,19 @@ final class MessagePackWriter
         else {
             writePayload(s.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * A payload longer than an int cannot be held in a byte[] or expressed by this API, so it
+     * is rejected with a clear message rather than written as a header with a wrapped length.
+     */
+    @VisibleForTesting
+    static int checkedByteLength(long byteLen)
+    {
+        if (byteLen > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("String is too long to encode: " + byteLen + " UTF-8 bytes");
+        }
+        return (int) byteLen;
     }
 
     /**
@@ -598,10 +611,12 @@ final class MessagePackWriter
     // The two methods below must agree with each other and with String.getBytes(UTF_8),
     // which replaces an unpaired surrogate with a single '?'.
 
-    private static int utf8Length(String s)
+    // Counted as a long: a String of more than about 716 million non-ASCII chars encodes to
+    // more UTF-8 bytes than an int can hold.
+    private static long utf8Length(String s)
     {
         int len = s.length();
-        int n = 0;
+        long n = 0;
         for (int i = 0; i < len; i++) {
             char c = s.charAt(i);
             if (c < 0x80) {

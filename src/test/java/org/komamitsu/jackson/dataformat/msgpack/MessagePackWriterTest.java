@@ -218,6 +218,18 @@ public class MessagePackWriterTest
         assertFalse(MessagePackWriter.fitsInPlace(Integer.MAX_VALUE, 8000));
     }
 
+    // The UTF-8 length of a very large String does not fit an int, and must be reported
+    // rather than truncated into a header whose length wrapped.
+    @Test
+    public void aByteLengthBeyondIntIsRejected()
+    {
+        assertEquals(0, MessagePackWriter.checkedByteLength(0));
+        assertEquals(Integer.MAX_VALUE, MessagePackWriter.checkedByteLength(Integer.MAX_VALUE));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> MessagePackWriter.checkedByteLength(Integer.MAX_VALUE + 1L));
+        assertTrue(e.getMessage().contains("too long"), e.getMessage());
+    }
+
     @Test
     public void payloadWithOffset() throws IOException
     {
