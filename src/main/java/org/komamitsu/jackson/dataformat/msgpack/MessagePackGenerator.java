@@ -174,6 +174,18 @@ public class MessagePackGenerator
         writeContext = writeContext.getParent();
     }
 
+    // Rejects a key the format cannot encode before the context records the name, so a caller
+    // that catches the failure is not left with a name whose bytes were never written.
+    private static void checkKeyRepresentable(Object key)
+    {
+        if (key instanceof BigInteger && !MessagePackWriter.fitsInteger((BigInteger) key)) {
+            throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + key);
+        }
+        if (key instanceof BigDecimal) {
+            representable((BigDecimal) key);
+        }
+    }
+
     private void packKey(Object key) throws IOException
     {
         if (key instanceof String) {
@@ -363,8 +375,10 @@ public class MessagePackGenerator
             if (!writeContext.acceptsName()) {
                 _reportError("Can not write a property name, expecting a value");
             }
+            Object raw = ((MessagePackSerializedString) name).getRawValue();
+            checkKeyRepresentable(raw);
             writeContext.setName(name.getValue());
-            pack(w -> packKey(((MessagePackSerializedString) name).getRawValue()));
+            pack(w -> packKey(raw));
         }
         else {
             writeName(name.getValue());

@@ -23,6 +23,7 @@ import tools.jackson.core.JsonEncoding;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.ObjectReadContext;
 import tools.jackson.core.ObjectWriteContext;
+import tools.jackson.core.exc.StreamWriteException;
 import tools.jackson.core.StreamWriteFeature;
 import tools.jackson.core.TokenStreamContext;
 import tools.jackson.core.type.TypeReference;
@@ -1664,6 +1665,55 @@ public class MessagePackGeneratorTest
             gen.writeName(new MessagePackSerializedString(null)); // Bug: NPE here
             gen.writeNumber(2);
             gen.writeEndObject();
+        }
+    }
+
+    // A name the format cannot write must leave the context as it was. Otherwise the caller
+    // catches the failure, closes the generator, and AUTO_CLOSE_CONTENT writes nil for a name
+    // whose bytes never reached the buffer, producing a map entry with a value and no key.
+    @Test
+    public void aRejectedKeyLeavesNoPhantomName() throws IOException
+    {
+        BigInteger tooLarge = BigInteger.ONE.shiftLeft(64);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out)) {
+            gen.writeStartObject();
+            gen.writeName("ok");
+            gen.writeNumber(1);
+            assertThrows(IllegalArgumentException.class,
+                    () -> gen.writeName(new MessagePackSerializedString(tooLarge)));
+        }
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("ok", unpacker.unpackString());
+            assertEquals(1, unpacker.unpackInt());
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
+    // Same for a name rejected by strict duplicate detection: no bytes were written, so the
+    // context must not be left expecting a value for it.
+    @Test
+    public void aRejectedDuplicateNameLeavesNoPhantomName() throws IOException
+    {
+        MessagePackFactory f = new MessagePackFactoryBuilder()
+                .enable(StreamWriteFeature.STRICT_DUPLICATE_DETECTION)
+                .build();
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = f.createGenerator(ObjectWriteContext.empty(), out)) {
+            gen.writeStartObject();
+            gen.writeName("dup");
+            gen.writeNumber(1);
+            assertThrows(StreamWriteException.class, () -> gen.writeName("dup"));
+        }
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("dup", unpacker.unpackString());
+            assertEquals(1, unpacker.unpackInt());
+            assertFalse(unpacker.hasNext());
         }
     }
 

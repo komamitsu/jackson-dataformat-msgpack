@@ -140,11 +140,13 @@ class MessagePackWriteContext extends TokenStreamContext
 
     void setName(String name) throws StreamWriteException
     {
-        currentName = name;
-        gotName = true;
+        // Checked first: a rejected name must leave the context as it was, or closing the
+        // generator would write a value for a name that never reached the output.
         if (dups != null) {
             checkDup(name);
         }
+        currentName = name;
+        gotName = true;
     }
 
     private void checkDup(String name) throws StreamWriteException
