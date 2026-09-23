@@ -1668,6 +1668,57 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Fails the first time it is asked to write a key, then works.
+    public static class FlakySerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        private boolean failed;
+
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            if (!failed) {
+                failed = true;
+                return;
+            }
+            gen.writeString(value.t);
+        }
+    }
+
+    // A key that never reached the buffer must not be remembered by duplicate detection, or
+    // writing it again after the failure is rejected as a duplicate of something never written.
+    @Test
+    public void aFailedKeyIsNotRememberedAsSeen() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new FlakySerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory())
+                .enable(StreamWriteFeature.STRICT_DUPLICATE_DETECTION)
+                .addModule(mod)
+                .build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            assertThrows(JacksonException.class,
+                    () -> gen.writeName(new MessagePackSerializedString(pojo)));
+            // The retry writes the same key, which the first attempt never emitted.
+            gen.writeName(new MessagePackSerializedString(pojo));
+            gen.writeNumber(1);
+            gen.writeEndObject();
+        }
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("foo", unpacker.unpackString());
+            assertEquals(1, unpacker.unpackInt());
+        }
+    }
+
     // Writes a complex map key as a value that is never finished, the way a serializer that
     // threw halfway would leave it.
     public static class UnfinishedSerializer

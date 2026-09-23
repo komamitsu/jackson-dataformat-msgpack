@@ -194,6 +194,24 @@ public class MessagePackGenerator
     }
 
     /**
+     * Records a name once its bytes are in the buffer. The duplicate check runs here rather
+     * than earlier because {@code DupDetector} remembers every name it is shown and offers no
+     * way to forget one: checking a key that then failed to encode would reject the next
+     * attempt to write it as a duplicate. On rejection the key's bytes are rolled back.
+     */
+    private void recordName(String name, int start, int holds)
+    {
+        try {
+            writeContext.checkDuplicate(name);
+        }
+        catch (RuntimeException e) {
+            writer.discardFrom(start, holds);
+            throw e;
+        }
+        writeContext.setName(name);
+    }
+
+    /**
      * Writes a key's bytes, leaving the buffer as it was if that fails. The name is recorded by
      * the caller afterwards, so an abandoned key leaves neither bytes nor a pending name.
      *
@@ -215,10 +233,8 @@ public class MessagePackGenerator
      * <p>A reader takes that 42 as the key and then runs out of input looking for its value,
      * so the missing key is reported here instead.
      */
-    private void writeKeyBytes(Object raw)
+    private void writeKeyBytes(Object raw, int start, int holds)
     {
-        int start = writer.position();
-        int holds = writer.holdDepth();
         try {
             pack(w -> packKey(raw));
         }
@@ -387,9 +403,10 @@ public class MessagePackGenerator
                 _reportError("Can not write a property id, expecting a value");
             }
             String asName = String.valueOf(id);
-            writeContext.checkDuplicate(asName);
+            int start = writer.position();
+            int holds = writer.holdDepth();
             pack(w -> w.packLong(id));
-            writeContext.setName(asName);
+            recordName(asName, start, holds);
         }
         else {
             writeName(String.valueOf(id));
@@ -412,10 +429,11 @@ public class MessagePackGenerator
         }
         // The name is recorded only once its bytes are in the buffer: a failure in between
         // would otherwise leave the context expecting a value for a name nobody wrote.
-        writeContext.checkDuplicate(name);
         MessagePackWriter.checkEncodable(name);
+        int start = writer.position();
+        int holds = writer.holdDepth();
         pack(w -> w.packString(name));
-        writeContext.setName(name);
+        recordName(name, start, holds);
         return this;
     }
 
@@ -429,10 +447,11 @@ public class MessagePackGenerator
             }
             Object raw = ((MessagePackSerializedString) name).getRawValue();
             String asName = name.getValue();
-            writeContext.checkDuplicate(asName);
             checkKeyRepresentable(raw);
-            writeKeyBytes(raw);
-            writeContext.setName(asName);
+            int start = writer.position();
+            int holds = writer.holdDepth();
+            writeKeyBytes(raw, start, holds);
+            recordName(asName, start, holds);
         }
         else {
             writeName(name.getValue());
