@@ -230,6 +230,18 @@ public class MessagePackWriterTest
         assertTrue(e.getMessage().contains("too long"), e.getMessage());
     }
 
+    // Guards the cheap pre-check that decides whether a name needs counting before it is
+    // recorded: below this length the UTF-8 form cannot exceed an int, whatever the chars are.
+    @Test
+    public void onlyAHugeStringNeedsItsLengthCounted()
+    {
+        assertFalse(MessagePackWriter.mayExceedIntLength(0));
+        assertFalse(MessagePackWriter.mayExceedIntLength(1000));
+        assertFalse(MessagePackWriter.mayExceedIntLength(715_827_882));
+        assertTrue(MessagePackWriter.mayExceedIntLength(715_827_883));
+        assertTrue(MessagePackWriter.mayExceedIntLength(Integer.MAX_VALUE));
+    }
+
     @Test
     public void payloadWithOffset() throws IOException
     {

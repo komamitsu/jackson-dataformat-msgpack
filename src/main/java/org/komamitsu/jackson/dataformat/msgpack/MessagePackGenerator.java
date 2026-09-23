@@ -178,6 +178,9 @@ public class MessagePackGenerator
     // that catches the failure is not left with a name whose bytes were never written.
     private static void checkKeyRepresentable(Object key)
     {
+        if (key instanceof String) {
+            MessagePackWriter.checkEncodable((String) key);
+        }
         if (key instanceof BigInteger && !MessagePackWriter.fitsInteger((BigInteger) key)) {
             throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + key);
         }
@@ -362,6 +365,7 @@ public class MessagePackGenerator
         if (!writeContext.acceptsName()) {
             _reportError("Can not write a property name, expecting a value");
         }
+        MessagePackWriter.checkEncodable(name);
         writeContext.setName(name);
         pack(w -> w.packString(name));
         return this;

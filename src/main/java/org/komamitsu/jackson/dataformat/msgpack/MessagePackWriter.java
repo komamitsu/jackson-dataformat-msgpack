@@ -169,6 +169,25 @@ final class MessagePackWriter
     }
 
     /**
+     * Rejects a String that cannot be encoded, before the caller commits to writing it. Only a
+     * String long enough to possibly exceed an int is counted, so ordinary names pay a single
+     * comparison.
+     */
+    static void checkEncodable(String s)
+    {
+        if (s != null && mayExceedIntLength(s.length())) {
+            checkedByteLength(utf8Length(s));
+        }
+    }
+
+    // A char encodes to at most 3 UTF-8 bytes, so below this the byte length cannot exceed an int.
+    @VisibleForTesting
+    static boolean mayExceedIntLength(int charLen)
+    {
+        return 3L * charLen > Integer.MAX_VALUE;
+    }
+
+    /**
      * A payload longer than an int cannot be held in a byte[] or expressed by this API, so it
      * is rejected with a clear message rather than written as a header with a wrapped length.
      */
