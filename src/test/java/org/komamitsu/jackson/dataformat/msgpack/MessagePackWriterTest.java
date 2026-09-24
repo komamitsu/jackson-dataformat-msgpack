@@ -242,29 +242,6 @@ public class MessagePackWriterTest
         assertTrue(MessagePackWriter.mayExceedIntLength(Integer.MAX_VALUE));
     }
 
-    // A nested generator writing a complex map key shares its parent's writer. When it
-    // abandons its own container it must leave the parent's holds in place, or the parent's
-    // buffer can be flushed while its header is still a placeholder.
-    @Test
-    public void discardingKeepsTheHoldsItWasToldToKeep() throws IOException
-    {
-        MessagePackWriter writer = new MessagePackWriter(newIOContext(), new ByteArrayOutputStream(), true);
-        writer.openContainer(true, -1);
-        writer.packString("key");
-        assertEquals(1, writer.holdDepth());
-
-        int innerStart = writer.openContainer(false, -1);
-        writer.packInt(1);
-        assertEquals(2, writer.holdDepth());
-
-        writer.discardFrom(innerStart, 1);
-        assertEquals(1, writer.holdDepth(), "the enclosing map is still open");
-
-        writer.discardFrom(0, 0);
-        assertEquals(0, writer.holdDepth());
-        writer.release();
-    }
-
     @Test
     public void payloadWithOffset() throws IOException
     {
@@ -465,7 +442,7 @@ public class MessagePackWriterTest
         MessagePackWriter writer = new MessagePackWriter(newIOContext(), new ByteArrayOutputStream(), true);
         writer.openContainer(false, -1);
         assertThrows(IllegalStateException.class, writer::flush);
-        writer.discardFrom(0, 0);
+        writer.discardFrom(0);
         writer.flush();
         writer.release();
     }
@@ -478,7 +455,7 @@ public class MessagePackWriterTest
         writer.openContainer(true, -1);
         writer.packString("half written");
         assertEquals(1 + 1 + 12, writer.pending());
-        writer.discardFrom(0, 0);
+        writer.discardFrom(0);
         assertEquals(0, writer.pending());
         writer.packInt(1);
         writer.flush();

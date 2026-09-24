@@ -45,11 +45,6 @@ public class MessagePackGenerator
         extends GeneratorBase
 {
     private final MessagePackWriter writer;
-    // False for a nested generator writing a complex key into its parent's writer.
-    private final boolean ownsWriter;
-    // Containers the writer already had open when this generator was created: zero for the
-    // owning generator, the parent's depth for a nested one writing a complex map key.
-    private final int baseHoldDepth;
     private final OutputStream output;
     private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
@@ -63,32 +58,14 @@ public class MessagePackGenerator
             boolean str8FormatSupport,
             boolean supportIntegerKeys)
     {
-        this(writeCtxt, ioCtxt, streamWriteFeatures, out,
-                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, 0, str8FormatSupport, supportIntegerKeys);
-    }
-
-    private MessagePackGenerator(
-            ObjectWriteContext writeCtxt,
-            IOContext ioCtxt,
-            int streamWriteFeatures,
-            OutputStream out,
-            MessagePackWriter writer,
-            boolean ownsWriter,
-            int nestingDepth,
-            boolean str8FormatSupport,
-            boolean supportIntegerKeys)
-    {
         super(writeCtxt, ioCtxt, streamWriteFeatures);
         this.output = out;
-        this.writer = writer;
-        this.ownsWriter = ownsWriter;
-        this.baseHoldDepth = writer.holdDepth();
+        this.writer = new MessagePackWriter(ioCtxt, out, str8FormatSupport);
         this.str8FormatSupport = str8FormatSupport;
         this.supportIntegerKeys = supportIntegerKeys;
         this.writeContext = MessagePackWriteContext.createRootContext(
                 StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
-                        ? DupDetector.rootDetector(this) : null,
-                nestingDepth);
+                        ? DupDetector.rootDetector(this) : null);
     }
 
     @Override
@@ -178,19 +155,45 @@ public class MessagePackGenerator
         writeContext = writeContext.getParent();
     }
 
-    // Rejects a key the format cannot encode before the context records the name, so a caller
-    // that catches the failure is not left with a name whose bytes were never written.
-    private static void checkKeyRepresentable(Object key)
+    /**
+     * Rejects a key this format cannot write, before the context records the name, so a caller
+     * that catches the failure is not left with a name whose bytes were never written.
+     *
+     * <p>A key must be a scalar. A map or an array cannot become a Jackson property name, so
+     * this parser refuses such a key on read and most other implementations cannot represent
+     * one at all: writing it would produce data nobody here can load again. A key of another
+     * type therefore needs a key serializer that writes a name, not a value.
+     */
+    private static void checkKeyWritable(Object key)
     {
         if (key instanceof String) {
             MessagePackWriter.checkEncodable((String) key);
+            return;
         }
-        if (key instanceof BigInteger && !MessagePackWriter.fitsInteger((BigInteger) key)) {
-            throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + key);
+        if (key instanceof BigInteger) {
+            if (!MessagePackWriter.fitsInteger((BigInteger) key)) {
+                throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + key);
+            }
+            return;
         }
         if (key instanceof BigDecimal) {
             representable((BigDecimal) key);
+            return;
         }
+        if (key == null
+                || key instanceof Integer
+                || key instanceof Long
+                || key instanceof Float
+                || key instanceof Double
+                || key instanceof Boolean
+                || key instanceof ByteBuffer
+                || key instanceof MessagePackExtensionType) {
+            return;
+        }
+        throw new IllegalArgumentException(
+                "A map key must be a scalar, but " + key.getClass().getName() + " is serialized as a "
+                        + "structure: no property name can represent it. Use a key serializer that "
+                        + "writes a name instead");
     }
 
     private void packKey(Object key) throws IOException
@@ -225,18 +228,9 @@ public class MessagePackGenerator
         else if (key instanceof ByteBuffer) {
             packByteBuffer((ByteBuffer) key);
         }
-        else if (key instanceof MessagePackExtensionType) {
-            packExtensionType((MessagePackExtensionType) key);
-        }
         else {
-            // Any other key type is serialized as a nested value in key position, straight into
-            // this generator's writer. The nested generator only tracks its own context stack,
-            // but starts counting depth where this one is so the nesting limit still holds.
-            try (MessagePackGenerator nested = new MessagePackGenerator(
-                    objectWriteContext(), _ioContext, _streamWriteFeatures, output,
-                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
-                objectWriteContext().writeValue(nested, key);
-            }
+            // checkKeyWritable rejects anything else before the name is recorded.
+            throw new IllegalStateException("Unexpected map key type: " + key.getClass().getName());
         }
     }
 
@@ -384,7 +378,7 @@ public class MessagePackGenerator
                 _reportError("Can not write a property name, expecting a value");
             }
             Object raw = ((MessagePackSerializedString) name).getRawValue();
-            checkKeyRepresentable(raw);
+            checkKeyWritable(raw);
             writeContext.setName(name.getValue());
             pack(w -> packKey(raw));
         }
@@ -646,7 +640,7 @@ public class MessagePackGenerator
                 while (!outermost.getParent().inRoot()) {
                     outermost = outermost.getParent();
                 }
-                writer.discardFrom(outermost.headerOffset(), baseHoldDepth);
+                writer.discardFrom(outermost.headerOffset());
                 writeContext = outermost.getParent();
                 flush();
             }
@@ -659,7 +653,7 @@ public class MessagePackGenerator
     @Override
     public void flush() throws JacksonException
     {
-        if (!ownsWriter || !writeContext.inRoot()) {
+        if (!writeContext.inRoot()) {
             // Headers of open containers are still to be patched, so nothing can be written yet.
             return;
         }
@@ -705,7 +699,7 @@ public class MessagePackGenerator
     @Override
     protected void _closeInput() throws IOException
     {
-        if (ownsWriter && StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
+        if (StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
             writer.close();
         }
     }
@@ -713,9 +707,7 @@ public class MessagePackGenerator
     @Override
     protected void _releaseBuffers()
     {
-        if (ownsWriter) {
-            writer.release();
-        }
+        writer.release();
     }
 
     @Override

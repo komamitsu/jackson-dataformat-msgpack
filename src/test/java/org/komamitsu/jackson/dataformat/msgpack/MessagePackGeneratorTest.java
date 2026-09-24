@@ -745,9 +745,10 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // A POJO key is refused: whatever its serializer produces, a map or an array cannot become
+    // a property name, and this parser rejects such a key on read.
     @Test
     public void testComplexTypeKey()
-            throws IOException
     {
         HashMap<TinyPojo, Integer> map = new HashMap<TinyPojo, Integer>();
         TinyPojo pojo = new TinyPojo();
@@ -759,19 +760,14 @@ public class MessagePackGeneratorTest
         ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
                 .addModule(mod)
                 .build();
-        byte[] bytes = objectMapper.writeValueAsBytes(map);
 
-        MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("t"));
-        assertThat(unpacker.unpackString(), is("foo"));
-        assertThat(unpacker.unpackInt(), is(42));
+        JacksonException e = assertThrows(JacksonException.class, () -> objectMapper.writeValueAsBytes(map));
+        assertTrue(e.getMessage().contains("A map key must be a scalar"), e.getMessage());
     }
 
+    // The annotation introspector that writes POJOs as arrays does not change that.
     @Test
     public void testComplexTypeKeyWithV06Format()
-            throws IOException
     {
         HashMap<TinyPojo, Integer> map = new HashMap<TinyPojo, Integer>();
         TinyPojo pojo = new TinyPojo();
@@ -784,13 +780,9 @@ public class MessagePackGeneratorTest
                 .annotationIntrospector(new JsonArrayFormat())
                 .addModule(mod)
                 .build();
-        byte[] bytes = objectMapper.writeValueAsBytes(map);
 
-        MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackArrayHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("foo"));
-        assertThat(unpacker.unpackInt(), is(42));
+        JacksonException e = assertThrows(JacksonException.class, () -> objectMapper.writeValueAsBytes(map));
+        assertTrue(e.getMessage().contains("A map key must be a scalar"), e.getMessage());
     }
 
     public static class IntegerSerializerStoringAsString
@@ -1363,6 +1355,31 @@ public class MessagePackGeneratorTest
         assertThrows(tools.jackson.core.exc.StreamWriteException.class, gen::writeEndObject);
     }
 
+    // Scalar keys are unaffected: MessagePackKeySerializer still writes them natively.
+    @Test
+    public void scalarKeysAreStillWritten() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(Object.class, new MessagePackKeySerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+
+        Map<Object, String> map = new java.util.LinkedHashMap<>();
+        map.put(42, "int");
+        map.put(true, "bool");
+        map.put(1.5d, "double");
+        byte[] bytes = mapper.writeValueAsBytes(map);
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
+            assertEquals(3, unpacker.unpackMapHeader());
+            assertEquals(42, unpacker.unpackInt());
+            assertEquals("int", unpacker.unpackString());
+            assertTrue(unpacker.unpackBoolean());
+            assertEquals("bool", unpacker.unpackString());
+            assertEquals(1.5d, unpacker.unpackDouble(), 0);
+            assertEquals("double", unpacker.unpackString());
+        }
+    }
+
     @Test
     public void bufferedByteCountIsReported()
     {
@@ -1378,80 +1395,11 @@ public class MessagePackGeneratorTest
         gen.close();
     }
 
-    static class KeyWithList
-    {
-        public String name;
-        public List<Integer> values;
-
-        KeyWithList(String name, List<Integer> values)
-        {
-            this.name = name;
-            this.values = values;
-        }
-    }
-
-    @Test
-    public void complexKeyCountsTowardsTheNestingLimit()
-    {
-        // Outer map (1), the key object (2), the key's list (3).
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        Map<KeyWithList, Integer> map = Collections.singletonMap(new KeyWithList("k", Arrays.asList(1)), 1);
-
-        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).addModule(mod).build();
-        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> limitedToTwo.writeValueAsBytes(map));
-
-        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).addModule(mod).build();
-        byte[] bytes = limitedToThree.writeValueAsBytes(map);
-        assertEquals((byte) 0x81, bytes[0]);
-    }
-
     private static MessagePackFactory withMaxNestingDepth(int depth)
     {
         return (MessagePackFactory) new MessagePackFactory().rebuild()
                 .streamWriteConstraints(tools.jackson.core.StreamWriteConstraints.builder().maxNestingDepth(depth).build())
                 .build();
-    }
-
-    @Test
-    public void complexKeyWithNestedContainerIsWrittenInPlace() throws IOException
-    {
-        // The key's own containers get patched inside the parent's buffer, between the
-        // parent map's reserved header and the value that follows.
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
-
-        Map<KeyWithList, List<String>> map = new java.util.LinkedHashMap<>();
-        map.put(new KeyWithList("first", Arrays.asList(1, 2, 3)), Arrays.asList("a", "b"));
-        map.put(new KeyWithList("second", java.util.Collections.emptyList()), Arrays.asList("c"));
-        byte[] bytes = mapper.writeValueAsBytes(map);
-
-        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
-            assertEquals(2, unpacker.unpackMapHeader());
-
-            assertEquals(2, unpacker.unpackMapHeader());
-            assertEquals("name", unpacker.unpackString());
-            assertEquals("first", unpacker.unpackString());
-            assertEquals("values", unpacker.unpackString());
-            assertEquals(3, unpacker.unpackArrayHeader());
-            assertEquals(1, unpacker.unpackInt());
-            assertEquals(2, unpacker.unpackInt());
-            assertEquals(3, unpacker.unpackInt());
-            assertEquals(2, unpacker.unpackArrayHeader());
-            assertEquals("a", unpacker.unpackString());
-            assertEquals("b", unpacker.unpackString());
-
-            assertEquals(2, unpacker.unpackMapHeader());
-            assertEquals("name", unpacker.unpackString());
-            assertEquals("second", unpacker.unpackString());
-            assertEquals("values", unpacker.unpackString());
-            assertEquals(0, unpacker.unpackArrayHeader());
-            assertEquals(1, unpacker.unpackArrayHeader());
-            assertEquals("c", unpacker.unpackString());
-
-            assertFalse(unpacker.hasNext());
-        }
     }
 
     @Test

@@ -116,9 +116,7 @@ container is open because:
 - `grow()` copies the buffer from index 0 into the larger array, so every offset is the same
   in the new buffer;
 - closing an inner container only shifts bytes *after* its own header, and every enclosing
-  container's header lies before it, so outer offsets are unaffected;
-- a nested generator for a complex map key shares the same writer and the same buffer, so
-  its offsets are in the same index space.
+  container's header lies before it, so outer offsets are unaffected.
 
 Nested containers therefore just nest: each level's context holds its own offset, and
 `holdDepth` counts open levels. Everything from the outermost open container's header
@@ -150,50 +148,19 @@ offset   0    1    2    3
 ```
 
 Writing those four bytes to the stream would send an unpatched header byte, and the mistake
-could not be repaired afterwards because the bytes are already gone.
-
-A flush can also arrive from a generator that is at root and still must not flush. A POJO
-map key is written by a nested generator that shares the writer (see 2.6), and when the key
-is finished try-with-resources closes it. `close()` flushes when its context is at root, and
-it is at root: it opened and closed its own map. The parent's map stays open, but the nested
-generator's context stack cannot see it:
-
-```
-offset   0    1    2    3    4    5    6    7
-       +----+----+----+----+----+----+----+----+
-       | ?? | 82 | a1 | 78 | 01 | a1 | 79 | 02 |
-       +----+----+----+----+----+----+----+----+
-         ^     \--------------------------------/
-         |       the finished key {"x":1,"y":2},
-         |       written by the nested generator
-         parent's map header, still reserved
-
-   nested generator's context: root (its map is closed)
-   parent generator's context: inside the outer map, whose header is at offset 0
-```
-
-So `flush()` decides in two steps, and the writer asserts the decision was right:
+could not be repaired afterwards because the bytes are already gone. So `flush()` returns
+without doing anything unless the write context is back at root, and the writer asserts that
+the decision was right:
 
 ```mermaid
 flowchart TD
-    F["flush()"] --> O{ownsWriter?}
-    O -- "no: nested key generator" --> S1["return: the parent owns the writer"]
-    O -- yes --> R{"writeContext.inRoot()?"}
-    R -- "no: containers open" --> S2["return: headers still to patch"]
+    F["flush()"] --> R{"writeContext.inRoot()?"}
+    R -- "no: containers open" --> S["return: headers still to patch"]
     R -- yes --> W["writer.flush()"]
     W --> H{"holdDepth > 0?"}
     H -- yes --> E["IllegalStateException"]
     H -- no --> D["flushBuffer(), out.flush()"]
 ```
-
-The two questions are different: `ownsWriter` is about *which* generator is asking, and
-`inRoot()` about *when* it asks. Neither implies the other, so each case is caught by one
-check only:
-
-| Situation | `ownsWriter` | `inRoot()` | Stopped by |
-|---|---|---|---|
-| A generator flushes inside its own open object | true | false | `inRoot()` |
-| A nested key generator closes after writing the key | false | true | `ownsWriter` |
 
 `holdDepth` is the writer's own count of open containers, kept in step with the generator's
 context stack. Reaching the `IllegalStateException` branch means those two disagreed, which
@@ -326,60 +293,32 @@ written as `?`.
 Exceptions thrown mid-value leave the generator consistent, because every check (nesting
 depth, value expected) runs before any state is changed.
 
-### 2.6 Complex map keys
+### 2.6 Map keys
 
-A non-scalar map key (`MessagePackKeySerializer` on a POJO) is serialized by a nested
-`MessagePackGenerator` that shares the parent's `MessagePackWriter`, so the key's containers
-are patched in place inside the parent's buffer. The nested generator has its own write
-context stack, seeded with the parent's nesting depth so `maxNestingDepth` still holds.
+A map key must be a scalar. `checkKeyWritable` enforces that before the name is recorded or
+any byte is written, and `packKey` then writes the value natively: a string, an integer, a
+float, a boolean, nil, binary or an extension. `MessagePackKeySerializer` exists for exactly
+this, letting a `Map<Integer, V>` keep integer keys on the wire.
 
-Serializing a `Map<Point, String>` holding `Point(x=1, y=2)` to `"ok"` gives eleven bytes,
-written by both generators into one buffer:
+Anything else is refused, because no Jackson property name can represent it: the parser
+rejects a map or an array in key position, so writing one would produce data this library
+cannot read back, and Python and Go cannot represent such a key at all. A key of another type
+needs a key serializer that writes a *name* rather than a value.
+
+Serializing `Map<Integer, String>` holding `42` to `"ok"` is therefore flat, with the key
+written straight into the parent's buffer between the reserved header and the value:
 
 ```
-offset   0    1    2    3    4    5    6    7    8    9   10
-       +----+----+----+----+----+----+----+----+----+----+----+
-       | 81 | 82 | a1 | 78 | 01 | a1 | 79 | 02 | a2 | 6f | 6b |
-       +----+----+----+----+----+----+----+----+----+----+----+
-         |     \---------------------------/    \------------/
-         |       the key {"x":1,"y":2},           the value "ok",
-         |       nested generator                 parent again
-         |
+offset   0    1    2    3    4
+       +----+----+----+----+----+
+       | 81 | 2a | a2 | 6f | 6b |
+       +----+----+----+----+----+
+         |     |    \----------/
+         |     |      the value "ok"
+         |     the key 42
          parent's map header: one reserved byte while the map is open,
          patched to 81 (fixmap 1) by closeContainer
 ```
-
-Offset 1 is the key's own map header, opened and patched by the nested generator while the
-parent's header at offset 0 is still an unpatched placeholder. Nothing is copied at the end;
-the key's bytes are written where they belong.
-
-That works only if the two generators agree on who may end the writer's life. The
-`ownsWriter` flag answers that: only the generator that created the writer flushes it,
-closes the output target under `AUTO_CLOSE_TARGET`, and releases its buffer to the pool.
-
-The nested generator sits in a try-with-resources, so it is closed as soon as the key is
-written, and its `close()` must leave the shared writer alone:
-
-```mermaid
-sequenceDiagram
-    participant P as parent generator
-    participant N as nested generator
-    participant W as shared MessagePackWriter
-
-    P->>W: openContainer(map), reserves offset 0
-    P->>N: new (ownsWriter = false)
-    N->>W: openContainer(map), reserves offset 1
-    N->>W: packString("x"), packInt(1), packString("y"), packInt(2)
-    N->>W: closeContainer(), patches offset 1 to 82
-    N-->>N: close(): flush, _closeInput, _releaseBuffers all skipped
-    P->>W: writeString("ok")
-    P->>W: closeContainer(), patches offset 0 to 81
-    P->>W: flush(), release()
-```
-
-Without the flag, the nested `close()` would flush the parent's buffer while the header at
-offset 0 is still a placeholder, emitting a map whose count is whatever byte happened to be
-reserved, and would hand the buffer back to the pool while the parent is still writing to it.
 
 ## 3. Read path
 
@@ -508,7 +447,7 @@ fields above 999999999 are rejected instead of being folded into the seconds.
   boundary, compared byte for byte with msgpack-core's `MessagePacker` and decoded from its
   output, for both str8 settings and for array and stream sources.
 - `MessagePackGeneratorTest` / `MessagePackParserTest`: the Jackson layer, including close
-  semantics, contexts, complex keys and the accessor contract.
+  semantics, contexts, map keys and the accessor contract.
 - `HostileInputTest`: inputs that claim huge sizes or depths must fail with a bounded, typed
   exception without allocating in proportion to the claim.
 - `PropertyNameCanonicalizationTest`, `NestedUsageTest` (re-entrant `ObjectMapper` use on one
