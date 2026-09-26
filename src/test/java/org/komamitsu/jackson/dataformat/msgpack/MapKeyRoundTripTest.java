@@ -33,7 +33,11 @@ import tools.jackson.databind.annotation.JsonDeserialize;
 import tools.jackson.databind.exc.InvalidDefinitionException;
 import tools.jackson.databind.module.SimpleModule;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -430,6 +434,45 @@ public class MapKeyRoundTripTest
         ObjectMapper rebuilt = INTEGER_KEYS.rebuild().build();
         assertThrows(InvalidDefinitionException.class,
                 () -> rebuilt.writeValueAsBytes(Collections.singletonMap(new Point(), "v")));
+    }
+
+    // A mapper restored by JDK serialization is rebuilt through its builder, so it gets a guard
+    // bound to itself.
+    @Test
+    public void aJdkDeserializedMapperStillGuardsKeys() throws Exception
+    {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+            out.writeObject(INTEGER_KEYS);
+        }
+        ObjectMapper restored;
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            restored = (ObjectMapper) in.readObject();
+        }
+        UUID uuid = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        assertEquals(Collections.singletonMap(uuid, "v"), restored.readValue(
+                restored.writeValueAsBytes(Collections.singletonMap(uuid, "v")), new TypeReference<Map<UUID, String>>() {}));
+        assertThrows(InvalidDefinitionException.class,
+                () -> restored.writeValueAsBytes(Collections.singletonMap(new Point(), "v")));
+    }
+
+    // A Short or Byte key serializer the user registers wins over the built-in one.
+    @Test
+    public void aUserKeySerializerForShortWins() throws IOException
+    {
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactoryBuilder().supportIntegerKeys(true).build())
+                .addModule(new SimpleModule().addKeySerializer(Short.class, new ValueSerializer<Short>()
+                {
+                    @Override
+                    public void serialize(Short value, JsonGenerator gen, SerializationContext ctxt)
+                    {
+                        gen.writeName("s" + value);
+                    }
+                }))
+                .build();
+        byte[] bytes = mapper.writeValueAsBytes(Collections.singletonMap((short) 7, "v"));
+        assertEquals(ValueType.STRING, keyType(bytes));
+        assertEquals(Collections.singletonMap("s7", "v"), mapper.readValue(bytes, new TypeReference<Map<String, String>>() {}));
     }
 
     // A key serializer the user registers is trusted: reading back is then the user's contract.

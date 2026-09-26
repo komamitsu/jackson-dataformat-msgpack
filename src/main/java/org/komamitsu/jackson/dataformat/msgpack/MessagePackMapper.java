@@ -21,10 +21,10 @@ import tools.jackson.core.JsonGenerator;
 import tools.jackson.core.Version;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
 import tools.jackson.databind.cfg.MapperBuilder;
 import tools.jackson.databind.cfg.MapperBuilderState;
 import tools.jackson.databind.module.SimpleModule;
-import tools.jackson.databind.ser.std.StdSerializer;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -39,6 +39,10 @@ public class MessagePackMapper extends ObjectMapper
         public Builder(MessagePackFactory f)
         {
             super(f);
+            // Registered first, so a Short or Byte key serializer from a later module wins.
+            addModule(new SimpleModule("msgpack-small-integer-keys")
+                    .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
+                    .addKeySerializer(Byte.class, new SmallIntegerKeySerializer()));
         }
 
         protected Builder(StateImpl state)
@@ -96,17 +100,14 @@ public class MessagePackMapper extends ObjectMapper
      * Writes a Short or Byte map key through {@code writePropertyId}, as Jackson already does
      * for Integer and Long keys, so all four become MessagePack integers when integer keys are
      * enabled. With them disabled the generator writes the same decimal string Jackson would.
+     * Extends {@link ValueSerializer} directly because a mapper is JDK-serialized with its
+     * modules, and that needs a non-serializable superclass with a no-arg constructor.
      */
     static final class SmallIntegerKeySerializer
-            extends StdSerializer<Number>
+            extends ValueSerializer<Number>
             implements Serializable
     {
         private static final long serialVersionUID = 1L;
-
-        SmallIntegerKeySerializer()
-        {
-            super(Number.class);
-        }
 
         @Override
         public void serialize(Number value, JsonGenerator gen, SerializationContext ctxt)
@@ -135,10 +136,7 @@ public class MessagePackMapper extends ObjectMapper
     // a fixed name, so one registered by an earlier build of the same builder is replaced.
     private MessagePackMapper(Builder builder, UnreadableKeyGuard keyGuard)
     {
-        super(builder.addModule(new SimpleModule("msgpack-map-keys")
-                .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
-                .addKeySerializer(Byte.class, new SmallIntegerKeySerializer())
-                .setSerializerModifier(keyGuard)));
+        super(builder.addModule(new SimpleModule("msgpack-key-guard").setSerializerModifier(keyGuard)));
         keyGuard.bind(this);
     }
 
