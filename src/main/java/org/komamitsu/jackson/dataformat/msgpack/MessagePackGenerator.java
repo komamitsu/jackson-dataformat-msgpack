@@ -194,10 +194,8 @@ public class MessagePackGenerator
     }
 
     /**
-     * Records a name once its bytes are in the buffer. The duplicate check runs here rather
-     * than earlier because {@code DupDetector} remembers every name it is shown and offers no
-     * way to forget one: checking a key that then failed to encode would reject the next
-     * attempt to write it as a duplicate. On rejection the key's bytes are rolled back.
+     * Records a name once its key's bytes are in the buffer, rolling those bytes back if the
+     * name is rejected as a duplicate.
      */
     private void recordName(String name, int start, int holds)
     {
@@ -208,7 +206,7 @@ public class MessagePackGenerator
             writer.discardFrom(start, holds);
             throw e;
         }
-        writeContext.setName(name);
+        writeContext.setCheckedName(name);
     }
 
     /**
@@ -382,11 +380,8 @@ public class MessagePackGenerator
             if (!writeContext.acceptsName()) {
                 _reportError("Can not write a property id, expecting a value");
             }
-            String asName = String.valueOf(id);
-            int start = writer.position();
-            int holds = writer.holdDepth();
+            writeContext.setName(String.valueOf(id));
             pack(w -> w.packLong(id));
-            recordName(asName, start, holds);
         }
         else {
             writeName(String.valueOf(id));
@@ -407,13 +402,9 @@ public class MessagePackGenerator
         if (!writeContext.acceptsName()) {
             _reportError("Can not write a property name, expecting a value");
         }
-        // The name is recorded only once its bytes are in the buffer: a failure in between
-        // would otherwise leave the context expecting a value for a name nobody wrote.
         MessagePackWriter.checkEncodable(name);
-        int start = writer.position();
-        int holds = writer.holdDepth();
+        writeContext.setName(name);
         pack(w -> w.packString(name));
-        recordName(name, start, holds);
         return this;
     }
 
@@ -428,6 +419,10 @@ public class MessagePackGenerator
             Object raw = ((MessagePackSerializedString) name).getRawValue();
             String asName = name.getValue();
             checkKeyRepresentable(raw);
+            // Unlike a plain name, written in the opposite order: a key serializer runs user
+            // code, which can fail after the name is recorded and leave the context expecting
+            // a value for a key that never reached the output. Plain names and property ids
+            // cannot fail at that point, so they keep the cheaper record-then-write order.
             int start = writer.position();
             int holds = writer.holdDepth();
             writeKeyBytes(raw, start, holds);
