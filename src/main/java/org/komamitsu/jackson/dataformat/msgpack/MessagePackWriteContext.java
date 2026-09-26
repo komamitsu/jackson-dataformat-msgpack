@@ -28,8 +28,6 @@ class MessagePackWriteContext extends TokenStreamContext
     private Object currentValue;
     // For TYPE_OBJECT: true after writeName (expecting value), false after writeValue (expecting name)
     private boolean gotName;
-    // Whether a nil key was already written in this object, for duplicate detection.
-    private boolean sawNullName;
     // Where this container's header sits in the writer buffer, and how many bytes were
     // reserved for it, so the header can be patched with the final count on close.
     private int headerOffset;
@@ -48,7 +46,6 @@ class MessagePackWriteContext extends TokenStreamContext
         _type = type;
         _index = -1;
         gotName = false;
-        sawNullName = false;
         currentName = null;
         currentValue = value;
         if (dups != null) {
@@ -59,16 +56,7 @@ class MessagePackWriteContext extends TokenStreamContext
 
     static MessagePackWriteContext createRootContext(DupDetector dups)
     {
-        return createRootContext(dups, 0);
-    }
-
-    /**
-     * A root context that counts nesting from the given depth, for a generator that writes
-     * a value inside another generator's containers.
-     */
-    static MessagePackWriteContext createRootContext(DupDetector dups, int nestingDepth)
-    {
-        return new MessagePackWriteContext(TYPE_ROOT, null, dups, nestingDepth);
+        return new MessagePackWriteContext(TYPE_ROOT, null, dups, 0);
     }
 
     MessagePackWriteContext createChildArrayContext(Object value)
@@ -142,27 +130,11 @@ class MessagePackWriteContext extends TokenStreamContext
     {
         // Checked first: a rejected name must leave the context as it was, or closing the
         // generator would write a value for a name that never reached the output.
-        if (dups != null) {
-            checkDup(name);
+        if (dups != null && dups.isDup(name)) {
+            throw new StreamWriteException(null, "Duplicate Object property \"" + name + "\"");
         }
         currentName = name;
         gotName = true;
-    }
-
-    private void checkDup(String name) throws StreamWriteException
-    {
-        // A nil key has no String for DupDetector, so it is tracked here.
-        boolean dup;
-        if (name == null) {
-            dup = sawNullName;
-            sawNullName = true;
-        }
-        else {
-            dup = dups.isDup(name);
-        }
-        if (dup) {
-            throw new StreamWriteException(null, "Duplicate Object property \"" + name + "\"");
-        }
     }
 
     @Override

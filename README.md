@@ -200,31 +200,23 @@ ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory().setSt
 byte[] resultWithoutStr8Format = objectMapper.writeValueAsBytes(str8LengthString);
 ```
 
-### Serialize using non-String as a key of Map
+### Serialize integer map keys as MessagePack integers
 
-When you want to use non-String value as a key of Map, use `MessagePackKeySerializer` for key serialization.
+Map keys are written as strings, the same text Jackson writes for JSON, so every key reads
+back through its usual `KeyDeserializer`. To write `Integer`, `Long`, `Short` and `Byte` keys
+as MessagePack integers instead, enable integer keys:
 
 ```java
-@JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-private Map<Integer, String> intMap = new HashMap<>();
+ObjectMapper objectMapper = new MessagePackMapper(
+        new MessagePackFactoryBuilder().supportIntegerKeys(true).build());
 
-  :
-
-intMap.put(42, "Hello");
-
-ObjectMapper objectMapper = new MessagePackMapper();
-byte[] bytes = objectMapper.writeValueAsBytes(intMap);
+byte[] bytes = objectMapper.writeValueAsBytes(Collections.singletonMap(42, "Hello"));   // {42: "Hello"}
 
 Map<Integer, String> deserialized = objectMapper.readValue(bytes, new TypeReference<Map<Integer, String>>() {});
 System.out.println(deserialized);   // => {42=Hello}
 ```
 
-To apply it to every map key without annotating each field, register it through a module:
-
-```java
-SimpleModule module = new SimpleModule().addKeySerializer(Object.class, new MessagePackKeySerializer());
-ObjectMapper objectMapper = MessagePackMapper.builder().addModule(module).build();
-```
+Other key types stay strings either way.
 
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 

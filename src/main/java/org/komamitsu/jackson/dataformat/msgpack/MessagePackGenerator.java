@@ -33,7 +33,6 @@ import java.io.OutputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
 import java.util.Objects;
 
 /**
@@ -45,13 +44,7 @@ public class MessagePackGenerator
         extends GeneratorBase
 {
     private final MessagePackWriter writer;
-    // False for a nested generator writing a complex key into its parent's writer.
-    private final boolean ownsWriter;
-    // Containers the writer already had open when this generator was created: zero for the
-    // owning generator, the parent's depth for a nested one writing a complex map key.
-    private final int baseHoldDepth;
     private final OutputStream output;
-    private final boolean str8FormatSupport;
     private final boolean supportIntegerKeys;
     private MessagePackWriteContext writeContext;
 
@@ -63,32 +56,13 @@ public class MessagePackGenerator
             boolean str8FormatSupport,
             boolean supportIntegerKeys)
     {
-        this(writeCtxt, ioCtxt, streamWriteFeatures, out,
-                new MessagePackWriter(ioCtxt, out, str8FormatSupport), true, 0, str8FormatSupport, supportIntegerKeys);
-    }
-
-    private MessagePackGenerator(
-            ObjectWriteContext writeCtxt,
-            IOContext ioCtxt,
-            int streamWriteFeatures,
-            OutputStream out,
-            MessagePackWriter writer,
-            boolean ownsWriter,
-            int nestingDepth,
-            boolean str8FormatSupport,
-            boolean supportIntegerKeys)
-    {
         super(writeCtxt, ioCtxt, streamWriteFeatures);
         this.output = out;
-        this.writer = writer;
-        this.ownsWriter = ownsWriter;
-        this.baseHoldDepth = writer.holdDepth();
-        this.str8FormatSupport = str8FormatSupport;
+        this.writer = new MessagePackWriter(ioCtxt, out, str8FormatSupport);
         this.supportIntegerKeys = supportIntegerKeys;
         this.writeContext = MessagePackWriteContext.createRootContext(
                 StreamWriteFeature.STRICT_DUPLICATE_DETECTION.enabledIn(streamWriteFeatures)
-                        ? DupDetector.rootDetector(this) : null,
-                nestingDepth);
+                        ? DupDetector.rootDetector(this) : null);
     }
 
     @Override
@@ -178,93 +152,11 @@ public class MessagePackGenerator
         writeContext = writeContext.getParent();
     }
 
-    // Rejects a key the format cannot encode before the context records the name, so a caller
-    // that catches the failure is not left with a name whose bytes were never written.
-    private static void checkKeyRepresentable(Object key)
-    {
-        if (key instanceof String) {
-            MessagePackWriter.checkEncodable((String) key);
-        }
-        if (key instanceof BigInteger && !MessagePackWriter.fitsInteger((BigInteger) key)) {
-            throw new IllegalArgumentException("MessagePack integers range from -2^63 to 2^64-1, got " + key);
-        }
-        if (key instanceof BigDecimal) {
-            representable((BigDecimal) key);
-        }
-    }
-
-    private void packKey(Object key) throws IOException
-    {
-        if (key instanceof String) {
-            writer.packString((String) key);
-        }
-        else if (key instanceof Integer) {
-            writer.packInt((Integer) key);
-        }
-        else if (key == null) {
-            writer.packNil();
-        }
-        else if (key instanceof Long) {
-            writer.packLong((Long) key);
-        }
-        else if (key instanceof Float) {
-            writer.packFloat((Float) key);
-        }
-        else if (key instanceof Double) {
-            writer.packDouble((Double) key);
-        }
-        else if (key instanceof BigInteger) {
-            writer.packBigInteger((BigInteger) key);
-        }
-        else if (key instanceof BigDecimal) {
-            packBigDecimal((BigDecimal) key);
-        }
-        else if (key instanceof Boolean) {
-            writer.packBoolean((Boolean) key);
-        }
-        else if (key instanceof ByteBuffer) {
-            packByteBuffer((ByteBuffer) key);
-        }
-        else if (key instanceof MessagePackExtensionType) {
-            packExtensionType((MessagePackExtensionType) key);
-        }
-        else {
-            // Any other key type is serialized as a nested value in key position, straight into
-            // this generator's writer. The nested generator only tracks its own context stack,
-            // but starts counting depth where this one is so the nesting limit still holds.
-            try (MessagePackGenerator nested = new MessagePackGenerator(
-                    objectWriteContext(), _ioContext, _streamWriteFeatures, output,
-                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
-                objectWriteContext().writeValue(nested, key);
-            }
-        }
-    }
-
-    private void packByteBuffer(ByteBuffer bb) throws IOException
-    {
-        int len = bb.remaining();
-        if (bb.hasArray() && !bb.isReadOnly()) {
-            writer.packBinaryHeader(len);
-            writer.writePayload(bb.array(), bb.arrayOffset() + bb.position(), len);
-        }
-        else {
-            byte[] data = new byte[len];
-            bb.duplicate().get(data);
-            writer.packBinaryHeader(len);
-            writer.writePayload(data);
-        }
-    }
-
     private void packExtensionType(MessagePackExtensionType extensionType) throws IOException
     {
         byte[] extData = extensionType.getData();
         writer.packExtensionTypeHeader(extensionType.getType(), extData.length);
         writer.writePayload(extData);
-    }
-
-    private void packBigDecimal(BigDecimal decimal) throws IOException
-    {
-        packDecimalEncoding(representable(decimal));
     }
 
     // How a BigDecimal goes on the wire: as an integer if it has no fraction and fits one,
@@ -372,25 +264,6 @@ public class MessagePackGenerator
         MessagePackWriter.checkEncodable(name);
         writeContext.setName(name);
         pack(w -> w.packString(name));
-        return this;
-    }
-
-    @Override
-    public JsonGenerator writeName(SerializableString name) throws JacksonException
-    {
-        checkNotClosed();
-        if (name instanceof MessagePackSerializedString) {
-            if (!writeContext.acceptsName()) {
-                _reportError("Can not write a property name, expecting a value");
-            }
-            Object raw = ((MessagePackSerializedString) name).getRawValue();
-            checkKeyRepresentable(raw);
-            writeContext.setName(name.getValue());
-            pack(w -> packKey(raw));
-        }
-        else {
-            writeName(name.getValue());
-        }
         return this;
     }
 
@@ -646,7 +519,7 @@ public class MessagePackGenerator
                 while (!outermost.getParent().inRoot()) {
                     outermost = outermost.getParent();
                 }
-                writer.discardFrom(outermost.headerOffset(), baseHoldDepth);
+                writer.discardFrom(outermost.headerOffset(), 0);
                 writeContext = outermost.getParent();
                 flush();
             }
@@ -659,7 +532,7 @@ public class MessagePackGenerator
     @Override
     public void flush() throws JacksonException
     {
-        if (!ownsWriter || !writeContext.inRoot()) {
+        if (!writeContext.inRoot()) {
             // Headers of open containers are still to be patched, so nothing can be written yet.
             return;
         }
@@ -705,7 +578,7 @@ public class MessagePackGenerator
     @Override
     protected void _closeInput() throws IOException
     {
-        if (ownsWriter && StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
+        if (StreamWriteFeature.AUTO_CLOSE_TARGET.enabledIn(_streamWriteFeatures)) {
             writer.close();
         }
     }
@@ -713,9 +586,7 @@ public class MessagePackGenerator
     @Override
     protected void _releaseBuffers()
     {
-        if (ownsWriter) {
-            writer.release();
-        }
+        writer.release();
     }
 
     @Override

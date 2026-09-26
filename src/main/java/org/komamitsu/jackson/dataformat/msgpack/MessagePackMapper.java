@@ -17,11 +17,16 @@ package org.komamitsu.jackson.dataformat.msgpack;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 
+import tools.jackson.core.JsonGenerator;
 import tools.jackson.core.Version;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.cfg.MapperBuilder;
 import tools.jackson.databind.cfg.MapperBuilderState;
+import tools.jackson.databind.module.SimpleModule;
+import tools.jackson.databind.ser.std.StdSerializer;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
@@ -34,6 +39,9 @@ public class MessagePackMapper extends ObjectMapper
         public Builder(MessagePackFactory f)
         {
             super(f);
+            addModule(new SimpleModule("msgpack-small-integer-keys")
+                    .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
+                    .addKeySerializer(Byte.class, new SmallIntegerKeySerializer()));
         }
 
         protected Builder(StateImpl state)
@@ -84,6 +92,29 @@ public class MessagePackMapper extends ObjectMapper
             {
                 return new Builder(this).build();
             }
+        }
+    }
+
+    /**
+     * Writes a Short or Byte map key through {@code writePropertyId}, as Jackson already does
+     * for Integer and Long keys, so all four become MessagePack integers when integer keys are
+     * enabled. With them disabled the generator writes the same decimal string Jackson would.
+     */
+    static final class SmallIntegerKeySerializer
+            extends StdSerializer<Number>
+            implements Serializable
+    {
+        private static final long serialVersionUID = 1L;
+
+        SmallIntegerKeySerializer()
+        {
+            super(Number.class);
+        }
+
+        @Override
+        public void serialize(Number value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            gen.writePropertyId(value.longValue());
         }
     }
 
