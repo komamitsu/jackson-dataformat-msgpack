@@ -745,6 +745,34 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Byte, Short, Character and byte[] keys are packed like the other scalars. The generator has
+    // no databind behind it, so a key that fell through to its value serializer would fail here.
+    @Test
+    public void smallScalarKeysArePackedDirectly()
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out);
+        gen.writeStartObject();
+        for (Object key : Arrays.asList(Byte.MIN_VALUE, Byte.MAX_VALUE, Short.MIN_VALUE, Short.MAX_VALUE,
+                'a', new byte[0], new byte[] {1, 2})) {
+            gen.writeName(new MessagePackSerializedString(key));
+            gen.writeNumber(0);
+        }
+        gen.writeEndObject();
+        gen.close();
+
+        assertArrayEquals(new byte[] {
+                (byte) 0x87,
+                (byte) 0xd0, (byte) 0x80, 0,
+                0x7f, 0,
+                (byte) 0xd1, (byte) 0x80, 0x00, 0,
+                (byte) 0xcd, 0x7f, (byte) 0xff, 0,
+                (byte) 0xa1, 'a', 0,
+                (byte) 0xc4, 0x00, 0,
+                (byte) 0xc4, 0x02, 1, 2, 0},
+                out.toByteArray());
+    }
+
     @Test
     public void testComplexTypeKey()
             throws IOException

@@ -198,8 +198,11 @@ public class MessagePackGenerator
         if (key instanceof String) {
             writer.packString((String) key);
         }
-        else if (key instanceof Integer) {
-            writer.packInt((Integer) key);
+        else if (key instanceof Integer || key instanceof Short || key instanceof Byte) {
+            writer.packInt(((Number) key).intValue());
+        }
+        else if (key instanceof Character) {
+            writer.packString(key.toString());
         }
         else if (key == null) {
             writer.packNil();
@@ -224,6 +227,11 @@ public class MessagePackGenerator
         }
         else if (key instanceof ByteBuffer) {
             packByteBuffer((ByteBuffer) key);
+        }
+        else if (key instanceof byte[]) {
+            byte[] bytes = (byte[]) key;
+            writer.packBinaryHeader(bytes.length);
+            writer.writePayload(bytes, 0, bytes.length);
         }
         else if (key instanceof MessagePackExtensionType) {
             packExtensionType((MessagePackExtensionType) key);
