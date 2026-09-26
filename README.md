@@ -226,6 +226,18 @@ SimpleModule module = new SimpleModule().addKeySerializer(Object.class, new Mess
 ObjectMapper objectMapper = MessagePackMapper.builder().addModule(module).build();
 ```
 
+Keys whose type MessagePack has a scalar for are written natively: integers, floats, booleans,
+strings and characters, `byte[]` and `ByteBuffer` as binary, and `MessagePackExtensionType`.
+Any other key (an enum, `UUID`, `Date`, a POJO) is written as a string, exactly as Jackson
+writes it as a JSON property name, and reads back through the same `KeyDeserializer`.
+
+On the way back a property name is a `String`, so a few native keys do not survive exactly:
+
+- A `BigDecimal` is written as a number and loses its scale (`1.10` comes back as `1.1`).
+- A binary key is decoded as UTF-8, so bytes that are not valid UTF-8 are not recoverable.
+- An extension key becomes the `toString()` of its deserialized value, so it needs an
+  extension deserializer whose result a `KeyDeserializer` can parse.
+
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
 By default, for backward compatibility, a BigDecimal is written as a MessagePack integer if it has no fractional part, and otherwise as a float64 if that represents it exactly. A value that fits neither (too many digits for a double, or a magnitude beyond 64-bit integers) fails with `IllegalArgumentException`. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.

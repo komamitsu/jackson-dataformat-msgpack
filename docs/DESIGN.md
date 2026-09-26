@@ -328,12 +328,15 @@ depth, value expected) runs before any state is changed.
 
 ### 2.6 Complex map keys
 
-A non-scalar map key (`MessagePackKeySerializer` on a POJO) is serialized by a nested
-`MessagePackGenerator` that shares the parent's `MessagePackWriter`, so the key's containers
-are patched in place inside the parent's buffer. The nested generator has its own write
-context stack, seeded with the parent's nesting depth so `maxNestingDepth` still holds.
+`MessagePackKeySerializer` passes only MessagePack scalars to the generator and writes any
+other key the way Jackson writes a JSON property name, so it never produces a container key.
+A caller of the streaming API can still pass a non-scalar raw value in a
+`MessagePackSerializedString`, and that key is serialized by a nested `MessagePackGenerator`
+that shares the parent's `MessagePackWriter`, so the key's containers are patched in place
+inside the parent's buffer. The nested generator has its own write context stack, seeded with
+the parent's nesting depth so `maxNestingDepth` still holds.
 
-Serializing a `Map<Point, String>` holding `Point(x=1, y=2)` to `"ok"` gives eleven bytes,
+Writing `Point(x=1, y=2)` that way as the key of `"ok"` gives eleven bytes,
 written by both generators into one buffer:
 
 ```

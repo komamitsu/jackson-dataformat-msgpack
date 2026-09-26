@@ -193,6 +193,29 @@ public class MessagePackGenerator
         }
     }
 
+    /**
+     * Whether {@link #packKey} encodes this key as a MessagePack scalar of its own, rather than
+     * serializing it as a nested value.
+     */
+    static boolean isScalarKey(Object key)
+    {
+        return key == null
+                || key instanceof String
+                || key instanceof Character
+                || key instanceof Integer
+                || key instanceof Long
+                || key instanceof Short
+                || key instanceof Byte
+                || key instanceof Float
+                || key instanceof Double
+                || key instanceof BigInteger
+                || key instanceof BigDecimal
+                || key instanceof Boolean
+                || key instanceof ByteBuffer
+                || key instanceof byte[]
+                || key instanceof MessagePackExtensionType;
+    }
+
     private void packKey(Object key) throws IOException
     {
         if (key instanceof String) {

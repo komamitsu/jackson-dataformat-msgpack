@@ -773,6 +773,8 @@ public class MessagePackGeneratorTest
                 out.toByteArray());
     }
 
+    // A POJO key is written the way Jackson writes it as a JSON property name (here its
+    // toString()), never as a map, which no property name could represent on the way back.
     @Test
     public void testComplexTypeKey()
             throws IOException
@@ -791,12 +793,11 @@ public class MessagePackGeneratorTest
 
         MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
         assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("t"));
-        assertThat(unpacker.unpackString(), is("foo"));
+        assertThat(unpacker.unpackString(), is(pojo.toString()));
         assertThat(unpacker.unpackInt(), is(42));
     }
 
+    // The array format applies to values only, so the key is the same string as above.
     @Test
     public void testComplexTypeKeyWithV06Format()
             throws IOException
@@ -816,8 +817,7 @@ public class MessagePackGeneratorTest
 
         MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
         assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackArrayHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("foo"));
+        assertThat(unpacker.unpackString(), is(pojo.toString()));
         assertThat(unpacker.unpackInt(), is(42));
     }
 
@@ -1418,19 +1418,31 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Writes {key: 1}, passing the key to the generator as is, which is how a caller of the
+    // streaming API reaches the nested-value path for a key that is not a MessagePack scalar.
+    private static byte[] writeMapWithRawKey(ObjectMapper mapper, Object key)
+    {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            gen.writeName(new MessagePackSerializedString(key));
+            gen.writeNumber(1);
+            gen.writeEndObject();
+        }
+        return out.toByteArray();
+    }
+
     @Test
     public void complexKeyCountsTowardsTheNestingLimit()
     {
         // Outer map (1), the key object (2), the key's list (3).
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        Map<KeyWithList, Integer> map = Collections.singletonMap(new KeyWithList("k", Arrays.asList(1)), 1);
+        KeyWithList key = new KeyWithList("k", Arrays.asList(1));
 
-        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).addModule(mod).build();
-        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> limitedToTwo.writeValueAsBytes(map));
+        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).build();
+        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> writeMapWithRawKey(limitedToTwo, key));
 
-        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).addModule(mod).build();
-        byte[] bytes = limitedToThree.writeValueAsBytes(map);
+        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).build();
+        byte[] bytes = writeMapWithRawKey(limitedToThree, key);
         assertEquals((byte) 0x81, bytes[0]);
     }
 
@@ -1446,14 +1458,18 @@ public class MessagePackGeneratorTest
     {
         // The key's own containers get patched inside the parent's buffer, between the
         // parent map's reserved header and the value that follows.
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).build();
 
-        Map<KeyWithList, List<String>> map = new java.util.LinkedHashMap<>();
-        map.put(new KeyWithList("first", Arrays.asList(1, 2, 3)), Arrays.asList("a", "b"));
-        map.put(new KeyWithList("second", java.util.Collections.emptyList()), Arrays.asList("c"));
-        byte[] bytes = mapper.writeValueAsBytes(map);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            gen.writeName(new MessagePackSerializedString(new KeyWithList("first", Arrays.asList(1, 2, 3))));
+            gen.writePOJO(Arrays.asList("a", "b"));
+            gen.writeName(new MessagePackSerializedString(new KeyWithList("second", Collections.emptyList())));
+            gen.writePOJO(Arrays.asList("c"));
+            gen.writeEndObject();
+        }
+        byte[] bytes = out.toByteArray();
 
         try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
             assertEquals(2, unpacker.unpackMapHeader());
