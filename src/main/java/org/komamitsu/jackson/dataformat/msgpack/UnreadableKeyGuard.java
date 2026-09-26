@@ -45,12 +45,11 @@ import java.time.Year;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Currency;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -68,7 +67,7 @@ final class UnreadableKeyGuard
 
     // Types Jackson has a built-in key deserializer for (JDKKeyDeserializer and the java.time
     // key deserializers).
-    private static final List<Class<?>> READABLE = Arrays.asList(
+    private static final Set<Class<?>> READABLE = Set.of(
             String.class, Object.class, CharSequence.class, Serializable.class,
             Boolean.class, Byte.class, Short.class, Character.class, Integer.class, Long.class,
             Float.class, Double.class, UUID.class, Date.class, Calendar.class, URI.class, URL.class,
@@ -78,7 +77,7 @@ final class UnreadableKeyGuard
             YearMonth.class, ZonedDateTime.class, ZoneId.class);
     // Of those, the ones whose values are usually a subtype (GregorianCalendar, java.sql.Date,
     // a ZoneId region), which read back as the declared type.
-    private static final List<Class<?>> READABLE_WITH_SUBTYPES = Arrays.asList(
+    private static final Set<Class<?>> READABLE_WITH_SUBTYPES = Set.of(
             Date.class, Calendar.class, ZoneId.class);
 
     @Override
