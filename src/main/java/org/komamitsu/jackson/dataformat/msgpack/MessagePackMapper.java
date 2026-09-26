@@ -39,10 +39,6 @@ public class MessagePackMapper extends ObjectMapper
         public Builder(MessagePackFactory f)
         {
             super(f);
-            addModule(new SimpleModule("msgpack-map-keys")
-                    .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
-                    .addKeySerializer(Byte.class, new SmallIntegerKeySerializer())
-                    .setSerializerModifier(new UnreadableKeyGuard()));
         }
 
         protected Builder(StateImpl state)
@@ -131,7 +127,26 @@ public class MessagePackMapper extends ObjectMapper
 
     protected MessagePackMapper(Builder builder)
     {
-        super(builder);
+        this(builder, new UnreadableKeyGuard());
+    }
+
+    // Every mapper, however it is built, gets its own key guard bound to itself, since the
+    // guard asks this mapper's read side whether a key type can be read back. The module has
+    // a fixed name, so one registered by an earlier build of the same builder is replaced.
+    private MessagePackMapper(Builder builder, UnreadableKeyGuard keyGuard)
+    {
+        super(builder.addModule(new SimpleModule("msgpack-map-keys")
+                .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
+                .addKeySerializer(Byte.class, new SmallIntegerKeySerializer())
+                .setSerializerModifier(keyGuard)));
+        keyGuard.bind(this);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public Builder rebuild()
+    {
+        return new Builder((Builder.StateImpl) _savedBuilderState);
     }
 
     public static Builder builder()

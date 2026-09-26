@@ -221,11 +221,12 @@ Other key types stay strings either way.
 ### Use an object as a map key
 
 A key of any other type is written as the same string Jackson writes for JSON: the value of
-its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. The type must be buildable
-from that string, through a single-`String` constructor, a static `valueOf(String)` or
-`fromString(String)`, a `@JsonCreator` factory taking one `String`, or a
-`@JsonDeserialize(keyUsing = ...)` on the class. Otherwise writing the key fails with an
-`InvalidDefinitionException`, because it could not be read back.
+its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. The mapper must be able to
+build the type back from that string: through a single-`String` constructor, a static
+`valueOf(String)` or `fromString(String)`, a `@JsonCreator` factory taking one `String`, a
+`@JsonDeserialize(keyUsing = ...)` on the class, or a `KeyDeserializer` registered on the
+mapper. Otherwise writing the key fails with an `InvalidDefinitionException`, because it could
+not be read back.
 
 ```java
 public class UserId {

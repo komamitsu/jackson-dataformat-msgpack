@@ -36,14 +36,17 @@ import tools.jackson.databind.module.SimpleModule;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Currency;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -388,6 +391,45 @@ public class MapKeyRoundTripTest
         Map<Object, String> readable = Collections.singletonMap(UUID.fromString("123e4567-e89b-12d3-a456-426614174000"), "v");
         assertEquals(Collections.singletonMap("123e4567-e89b-12d3-a456-426614174000", "v"),
                 INTEGER_KEYS.readValue(INTEGER_KEYS.writeValueAsBytes(readable), new TypeReference<Map<Object, String>>() {}));
+    }
+
+    // Readability is asked of the mapper's read side, so a KeyDeserializer registered on the
+    // mapper makes a type writable, with no annotation on the type.
+    @Test
+    public void aKeyDeserializerRegisteredOnTheMapperMakesAKeyWritable() throws IOException
+    {
+        ObjectMapper mapper = MessagePackMapper.builder()
+                .addModule(new SimpleModule().addKeyDeserializer(Point.class, new KeyDeserializer()
+                {
+                    @Override
+                    public Object deserializeKey(String key, DeserializationContext ctxt)
+                    {
+                        return new Point();
+                    }
+                }))
+                .build();
+        byte[] bytes = mapper.writeValueAsBytes(Collections.singletonMap(new Point(), "v"));
+        assertEquals(Collections.singletonMap("1,2", "v"), mapper.readValue(bytes, new TypeReference<Map<String, String>>() {}));
+    }
+
+    // JDK types are judged by Jackson's own key deserializers: Currency has one, Charset and
+    // TimeZone do not.
+    @Test
+    public void jdkKeyTypesFollowJacksonsKeyDeserializers() throws IOException
+    {
+        assertRoundTrip(INTEGER_KEYS, Currency.getInstance("JPY"), ValueType.STRING,
+                new TypeReference<Map<Currency, String>>() {});
+        assertRefused(StandardCharsets.UTF_8);
+        assertRefused(TimeZone.getTimeZone("UTC"));
+    }
+
+    // A rebuilt mapper gets its own guard, bound to itself.
+    @Test
+    public void aRebuiltMapperStillRefusesUnreadableKeys()
+    {
+        ObjectMapper rebuilt = INTEGER_KEYS.rebuild().build();
+        assertThrows(InvalidDefinitionException.class,
+                () -> rebuilt.writeValueAsBytes(Collections.singletonMap(new Point(), "v")));
     }
 
     // A key serializer the user registers is trusted: reading back is then the user's contract.

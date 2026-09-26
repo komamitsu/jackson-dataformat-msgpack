@@ -307,11 +307,20 @@ A str on the wire is not enough on its own: the key must also turn back into its
 and Jackson writes some keys (a map, a collection, a POJO with no String creator) with
 `toString()` although nothing can read that back. `UnreadableKeyGuard`, a serializer modifier
 `MessagePackMapper` registers, sees the key serializer Jackson picked for each key type and
-replaces it with one that fails on write unless the type is readable, by the same rules
-Jackson uses to find a key deserializer: its built-in JDK and java.time types, enums,
-`@JsonDeserialize(keyUsing)` on the class, and a creator taking one String. A key serializer
-the user registered is left alone. The decision is made once per key type, when Jackson
-creates the key serializer, so it costs nothing per key.
+replaces it with one that fails on write unless the mapper's own read side can build a key
+deserializer for the type (`findKeyDeserializer` on a context from
+`ObjectMapper._deserializationContext()`). That lookup is the one a read performs, so it
+covers Jackson's built-in key types, enums, String creators, `@JsonDeserialize(keyUsing)` and
+any module or `KeyDeserializer` registered on the mapper, with no list to maintain. A key
+serializer the user registered is left alone.
+
+Each mapper gets its own guard, bound to it right after construction: `MessagePackMapper`
+registers the guard's module in the one constructor every build path goes through, under a
+fixed name so a rebuilt mapper replaces the previous guard instead of sharing it.
+
+The guard runs when Jackson builds a key serializer, which a map serializer does once and then
+holds, so it costs nothing per write. The lookup itself is not cached: it takes about 0.4 µs
+per key type, paid when a mapper first writes a map with that key type.
 
 ## 3. Read path
 
