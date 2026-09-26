@@ -232,10 +232,21 @@ public class MessagePackGenerator
             // Any other key type is serialized as a nested value in key position, straight into
             // this generator's writer. The nested generator only tracks its own context stack,
             // but starts counting depth where this one is so the nesting limit still holds.
+            int start = writer.position();
             try (MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
                     writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
                 objectWriteContext().writeValue(nested, key);
+            }
+            if (writer.position() > start) {
+                // No property name can represent a container, so this parser rejects such a key
+                // on read, as do most other implementations. Writing one would produce data
+                // nothing here can load again.
+                MessageFormat.ValueType keyType = writer.formatAt(start).getValueType();
+                if (keyType == MessageFormat.ValueType.MAP || keyType == MessageFormat.ValueType.ARRAY) {
+                    _reportError((keyType == MessageFormat.ValueType.MAP ? "A map" : "An array")
+                            + " cannot be used as a map key: no property name can represent it");
+                }
             }
         }
     }

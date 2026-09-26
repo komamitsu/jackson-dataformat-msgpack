@@ -745,9 +745,9 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // A POJO key serialises to a map, which no property name can represent, so it is refused.
     @Test
     public void testComplexTypeKey()
-            throws IOException
     {
         HashMap<TinyPojo, Integer> map = new HashMap<TinyPojo, Integer>();
         TinyPojo pojo = new TinyPojo();
@@ -759,19 +759,14 @@ public class MessagePackGeneratorTest
         ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
                 .addModule(mod)
                 .build();
-        byte[] bytes = objectMapper.writeValueAsBytes(map);
 
-        MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("t"));
-        assertThat(unpacker.unpackString(), is("foo"));
-        assertThat(unpacker.unpackInt(), is(42));
+        JacksonException e = assertThrows(JacksonException.class, () -> objectMapper.writeValueAsBytes(map));
+        assertTrue(e.getMessage().contains("A map cannot be used as a map key"), e.getMessage());
     }
 
+    // Under the v0.6 array format the same key serialises to an array, refused for the same reason.
     @Test
     public void testComplexTypeKeyWithV06Format()
-            throws IOException
     {
         HashMap<TinyPojo, Integer> map = new HashMap<TinyPojo, Integer>();
         TinyPojo pojo = new TinyPojo();
@@ -784,13 +779,9 @@ public class MessagePackGeneratorTest
                 .annotationIntrospector(new JsonArrayFormat())
                 .addModule(mod)
                 .build();
-        byte[] bytes = objectMapper.writeValueAsBytes(map);
 
-        MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackArrayHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("foo"));
-        assertThat(unpacker.unpackInt(), is(42));
+        JacksonException e = assertThrows(JacksonException.class, () -> objectMapper.writeValueAsBytes(map));
+        assertTrue(e.getMessage().contains("An array cannot be used as a map key"), e.getMessage());
     }
 
     public static class IntegerSerializerStoringAsString
@@ -1378,32 +1369,36 @@ public class MessagePackGeneratorTest
         gen.close();
     }
 
-    static class KeyWithList
+    // Writes a TinyPojo as a plain string, so it can stand as a map key.
+    public static class StringKeySerializer
+            extends ValueSerializer<TinyPojo>
     {
-        public String name;
-        public List<Integer> values;
-
-        KeyWithList(String name, List<Integer> values)
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
         {
-            this.name = name;
-            this.values = values;
+            gen.writeString(value.t);
         }
     }
 
+    // A map written through a key serializer is still subject to maxNestingDepth: its one level
+    // needs a limit of 1. A scalar key adds no level of its own, which is why 1 is enough.
     @Test
-    public void complexKeyCountsTowardsTheNestingLimit()
+    public void aMapWithASerializedKeyObeysTheNestingLimit()
     {
-        // Outer map (1), the key object (2), the key's list (3).
         SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        Map<KeyWithList, Integer> map = Collections.singletonMap(new KeyWithList("k", Arrays.asList(1)), 1);
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new StringKeySerializer());
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+        Map<TinyPojo, Integer> map = Collections.singletonMap(pojo, 1);
 
-        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).addModule(mod).build();
-        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> limitedToTwo.writeValueAsBytes(map));
-
-        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).addModule(mod).build();
-        byte[] bytes = limitedToThree.writeValueAsBytes(map);
+        ObjectMapper limitedToOne = MessagePackMapper.builder(withMaxNestingDepth(1)).addModule(mod).build();
+        byte[] bytes = limitedToOne.writeValueAsBytes(map);
         assertEquals((byte) 0x81, bytes[0]);
+
+        ObjectMapper limitedToZero = MessagePackMapper.builder(withMaxNestingDepth(0)).addModule(mod).build();
+        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class,
+                () -> limitedToZero.writeValueAsBytes(map));
     }
 
     private static MessagePackFactory withMaxNestingDepth(int depth)
@@ -1413,43 +1408,35 @@ public class MessagePackGeneratorTest
                 .build();
     }
 
+    // A POJO key whose serializer writes a scalar is allowed. It is written by a nested generator
+    // straight into the parent's buffer, between the parent map's reserved header and the value
+    // that follows, and the parent's header is patched around it.
     @Test
-    public void complexKeyWithNestedContainerIsWrittenInPlace() throws IOException
+    public void aPojoKeyThatEncodesToAScalarIsWrittenInPlace() throws IOException
     {
-        // The key's own containers get patched inside the parent's buffer, between the
-        // parent map's reserved header and the value that follows.
         SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new StringKeySerializer());
         ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
 
-        Map<KeyWithList, List<String>> map = new java.util.LinkedHashMap<>();
-        map.put(new KeyWithList("first", Arrays.asList(1, 2, 3)), Arrays.asList("a", "b"));
-        map.put(new KeyWithList("second", java.util.Collections.emptyList()), Arrays.asList("c"));
+        TinyPojo first = new TinyPojo();
+        first.t = "first";
+        TinyPojo second = new TinyPojo();
+        second.t = "second";
+        Map<TinyPojo, List<String>> map = new java.util.LinkedHashMap<>();
+        map.put(first, Arrays.asList("a", "b"));
+        map.put(second, Arrays.asList("c"));
         byte[] bytes = mapper.writeValueAsBytes(map);
 
         try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
             assertEquals(2, unpacker.unpackMapHeader());
-
-            assertEquals(2, unpacker.unpackMapHeader());
-            assertEquals("name", unpacker.unpackString());
             assertEquals("first", unpacker.unpackString());
-            assertEquals("values", unpacker.unpackString());
-            assertEquals(3, unpacker.unpackArrayHeader());
-            assertEquals(1, unpacker.unpackInt());
-            assertEquals(2, unpacker.unpackInt());
-            assertEquals(3, unpacker.unpackInt());
             assertEquals(2, unpacker.unpackArrayHeader());
             assertEquals("a", unpacker.unpackString());
             assertEquals("b", unpacker.unpackString());
-
-            assertEquals(2, unpacker.unpackMapHeader());
-            assertEquals("name", unpacker.unpackString());
             assertEquals("second", unpacker.unpackString());
-            assertEquals("values", unpacker.unpackString());
-            assertEquals(0, unpacker.unpackArrayHeader());
             assertEquals(1, unpacker.unpackArrayHeader());
             assertEquals("c", unpacker.unpackString());
-
             assertFalse(unpacker.hasNext());
         }
     }
