@@ -48,7 +48,7 @@ flowchart LR
 | `MessagePackReader` | Decodes values from a byte array or an `InputStream` through a buffer. |
 | `MessagePackReadContext` | Jackson `TokenStreamContext` for reading: expected element counts, current name. |
 | `MessageFormat` / `Code` | The format-byte table of the MessagePack spec. |
-| `MessagePackMapper` | Jackson `ObjectMapper` for this format. Writes `Short` and `Byte` map keys through `writePropertyId`, as Jackson does for `Integer` and `Long`. |
+| `MessagePackMapper` | Jackson `ObjectMapper` for this format. Writes `Short` and `Byte` map keys through `writePropertyId`, as Jackson does for `Integer` and `Long`, and registers `UnreadableKeyGuard` (2.6). |
 | `TimestampExtensionModule`, `MessagePackExtensionType`, `ExtensionTypeCustomDeserializers` | Extension type (-1 timestamp, and user-defined types). |
 
 msgpack-core is not used at runtime. It is a test dependency, used as the reference
@@ -302,6 +302,16 @@ keys are enabled, otherwise as its decimal str. Every key is therefore a str or 
 the parser reads back as a property name, and no key can be a map, an array, binary or an
 extension value. Any other key type gets its text from Jackson's key serializers, exactly as
 for JSON.
+
+A str on the wire is not enough on its own: the key must also turn back into its Java type,
+and Jackson writes some keys (a map, a collection, a POJO with no String creator) with
+`toString()` although nothing can read that back. `UnreadableKeyGuard`, a serializer modifier
+`MessagePackMapper` registers, sees the key serializer Jackson picked for each key type and
+replaces it with one that fails on write unless the type is readable, by the same rules
+Jackson uses to find a key deserializer: its built-in JDK and java.time types, enums,
+`@JsonDeserialize(keyUsing)` on the class, and a creator taking one String. A key serializer
+the user registered is left alone. The decision is made once per key type, when Jackson
+creates the key serializer, so it costs nothing per key.
 
 ## 3. Read path
 

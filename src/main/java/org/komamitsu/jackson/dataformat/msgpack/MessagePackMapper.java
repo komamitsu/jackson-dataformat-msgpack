@@ -39,9 +39,10 @@ public class MessagePackMapper extends ObjectMapper
         public Builder(MessagePackFactory f)
         {
             super(f);
-            addModule(new SimpleModule("msgpack-small-integer-keys")
+            addModule(new SimpleModule("msgpack-map-keys")
                     .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
-                    .addKeySerializer(Byte.class, new SmallIntegerKeySerializer()));
+                    .addKeySerializer(Byte.class, new SmallIntegerKeySerializer())
+                    .setSerializerModifier(new UnreadableKeyGuard()));
         }
 
         protected Builder(StateImpl state)

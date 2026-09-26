@@ -22,24 +22,34 @@ import org.junit.jupiter.api.Test;
 import org.msgpack.core.MessagePack;
 import org.msgpack.core.MessageUnpacker;
 import org.msgpack.value.ValueType;
+import tools.jackson.core.JsonGenerator;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.KeyDeserializer;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
+import tools.jackson.databind.annotation.JsonDeserialize;
 import tools.jackson.databind.exc.InvalidDefinitionException;
+import tools.jackson.databind.module.SimpleModule;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
-import java.util.List;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Writes a one-entry map and reads it back, checking what the key became on the wire and
@@ -247,32 +257,154 @@ public class MapKeyRoundTripTest
         assertArrayEquals(key, back);
     }
 
-    // A map or collection key is written as its toString(), and Jackson has no key deserializer
-    // to turn that back into a map or a collection, as in JSON.
-    @Test
-    public void aMapOrCollectionKeyCannotBeReadBack() throws IOException
+    // Built from a String by a static valueOf(String), which Jackson's key deserializer accepts.
+    public static class Token
     {
-        byte[] listKey = INTEGER_KEYS.writeValueAsBytes(Collections.singletonMap(Arrays.asList(1, 2), "v"));
-        assertEquals(ValueType.STRING, keyType(listKey));
-        assertEquals(Collections.singletonMap("[1, 2]", "v"),
-                INTEGER_KEYS.readValue(listKey, new TypeReference<Map<String, String>>() {}));
-        assertThrows(InvalidDefinitionException.class,
-                () -> INTEGER_KEYS.readValue(listKey, new TypeReference<Map<List<Integer>, String>>() {}));
+        private final String value;
 
-        byte[] mapKey = INTEGER_KEYS.writeValueAsBytes(
-                Collections.singletonMap(Collections.singletonMap("a", 1), "v"));
-        assertEquals(ValueType.STRING, keyType(mapKey));
-        assertEquals(Collections.singletonMap("{a=1}", "v"),
-                INTEGER_KEYS.readValue(mapKey, new TypeReference<Map<String, String>>() {}));
-        assertThrows(InvalidDefinitionException.class,
-                () -> INTEGER_KEYS.readValue(mapKey, new TypeReference<Map<Map<String, Integer>, String>>() {}));
+        private Token(String value)
+        {
+            this.value = value;
+        }
+
+        public static Token valueOf(String value)
+        {
+            return new Token(value);
+        }
+
+        @Override
+        public String toString()
+        {
+            return value;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            return o instanceof Token && ((Token) o).value.equals(value);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return value.hashCode();
+        }
     }
 
-    // A type that is a map as a value is still a string as a key (its toString()), never a map.
-    @Test
-    public void aPojoKeyIsNeverAContainer() throws IOException
+    // Written through @JsonValue, but with no way to be built back from that string.
+    public static class Label
     {
-        assertEquals("1,2", roundTrip(INTEGER_KEYS, new Point(), ValueType.STRING,
-                new TypeReference<Map<Object, String>>() {}));
+        @JsonValue
+        public String text()
+        {
+            return "label";
+        }
+    }
+
+    // Read back by a KeyDeserializer named on the class.
+    @JsonDeserialize(keyUsing = Tagged.Reader.class)
+    public static class Tagged
+    {
+        private final String value;
+
+        Tagged(String value)
+        {
+            this.value = value;
+        }
+
+        @Override
+        public String toString()
+        {
+            return value;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            return o instanceof Tagged && ((Tagged) o).value.equals(value);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return value.hashCode();
+        }
+
+        public static class Reader
+                extends KeyDeserializer
+        {
+            @Override
+            public Object deserializeKey(String key, DeserializationContext ctxt)
+            {
+                return new Tagged(key);
+            }
+        }
+    }
+
+    @Test
+    public void keysBuiltFromAStringRoundTrip() throws IOException
+    {
+        assertRoundTrip(INTEGER_KEYS, Token.valueOf("t-1"), ValueType.STRING, new TypeReference<Map<Token, String>>() {});
+        assertRoundTrip(INTEGER_KEYS, new Tagged("g-1"), ValueType.STRING, new TypeReference<Map<Tagged, String>>() {});
+        assertRoundTrip(INTEGER_KEYS, LocalDate.of(2026, 9, 26), ValueType.STRING,
+                new TypeReference<Map<LocalDate, String>>() {});
+    }
+
+    private static void assertRefused(Object key)
+    {
+        InvalidDefinitionException e = assertThrows(InvalidDefinitionException.class,
+                () -> INTEGER_KEYS.writeValueAsBytes(Collections.singletonMap(key, "v")));
+        assertTrue(e.getMessage().contains("cannot be read back as a map key"), e.getMessage());
+    }
+
+    // Written as their toString(), these could never be read back, so they are refused on write.
+    @Test
+    public void aMapCollectionOrArrayKeyIsRefused()
+    {
+        assertRefused(Collections.singletonMap("a", 1));
+        assertRefused(Arrays.asList(1, 2));
+        assertRefused(new HashSet<>(Arrays.asList(1, 2)));
+        assertRefused(new String[] {"a"});
+    }
+
+    // A POJO with no way to be built from its key string is refused, whether its text comes
+    // from toString() or from @JsonValue.
+    @Test
+    public void aPojoKeyThatCannotBeBuiltFromAStringIsRefused()
+    {
+        assertRefused(new Point());
+        assertRefused(new Label());
+    }
+
+    // The check applies to the runtime type when the declared key type is Object.
+    @Test
+    public void anObjectKeyIsCheckedByItsRuntimeType() throws IOException
+    {
+        Map<Object, String> map = new LinkedHashMap<>();
+        map.put("s", "v");
+        map.put(new Point(), "v");
+        assertThrows(InvalidDefinitionException.class, () -> INTEGER_KEYS.writeValueAsBytes(map));
+
+        Map<Object, String> readable = Collections.singletonMap(UUID.fromString("123e4567-e89b-12d3-a456-426614174000"), "v");
+        assertEquals(Collections.singletonMap("123e4567-e89b-12d3-a456-426614174000", "v"),
+                INTEGER_KEYS.readValue(INTEGER_KEYS.writeValueAsBytes(readable), new TypeReference<Map<Object, String>>() {}));
+    }
+
+    // A key serializer the user registers is trusted: reading back is then the user's contract.
+    @Test
+    public void aRegisteredKeySerializerIsTrusted() throws IOException
+    {
+        ObjectMapper mapper = MessagePackMapper.builder()
+                .addModule(new SimpleModule().addKeySerializer(Point.class, new ValueSerializer<Point>()
+                {
+                    @Override
+                    public void serialize(Point value, JsonGenerator gen, SerializationContext ctxt)
+                    {
+                        gen.writeName(value.x + ":" + value.y);
+                    }
+                }))
+                .build();
+        byte[] bytes = mapper.writeValueAsBytes(Collections.singletonMap(new Point(), "v"));
+        assertEquals(Collections.singletonMap("1:2", "v"), mapper.readValue(bytes, new TypeReference<Map<String, String>>() {}));
     }
 }

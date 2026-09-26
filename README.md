@@ -221,9 +221,11 @@ Other key types stay strings either way.
 ### Use an object as a map key
 
 A key of any other type is written as the same string Jackson writes for JSON: the value of
-its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. To read such a key back,
-give the type a way to be built from that string, such as a single-`String` constructor or a
-`@JsonCreator` factory, or register a `KeyDeserializer`.
+its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. The type must be buildable
+from that string, through a single-`String` constructor, a static `valueOf(String)` or
+`fromString(String)`, a `@JsonCreator` factory taking one `String`, or a
+`@JsonDeserialize(keyUsing = ...)` on the class. Otherwise writing the key fails with an
+`InvalidDefinitionException`, because it could not be read back.
 
 ```java
 public class UserId {
@@ -245,8 +247,10 @@ byte[] bytes = objectMapper.writeValueAsBytes(Collections.singletonMap(new UserI
 Map<UserId, String> deserialized = objectMapper.readValue(bytes, new TypeReference<Map<UserId, String>>() {});
 ```
 
-A map or a collection cannot be a key: it is written as its `toString()`, and Jackson has no
-way to turn that back into a map or a collection, as in JSON.
+For the same reason a map, a collection or an array (other than `byte[]`) cannot be a key.
+Jackson's JSON output writes such keys as their `toString()` and fails only when reading them;
+this library refuses them when writing. A key serializer you register yourself is not checked,
+so pair it with a matching `KeyDeserializer`.
 
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
