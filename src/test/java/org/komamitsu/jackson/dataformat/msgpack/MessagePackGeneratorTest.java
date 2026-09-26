@@ -1668,6 +1668,99 @@ public class MessagePackGeneratorTest
         }
     }
 
+    // Throws the first time it is asked to write a key, then works.
+    public static class FlakySerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        private boolean failed;
+
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            if (!failed) {
+                failed = true;
+                throw new IllegalStateException("key serializer failed");
+            }
+            gen.writeString(value.t);
+        }
+    }
+
+    // Throws every time.
+    public static class ThrowingSerializer
+            extends ValueSerializer<TinyPojo>
+    {
+        @Override
+        public void serialize(TinyPojo value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            throw new IllegalStateException("key serializer failed");
+        }
+    }
+
+    // A key whose serializer throws must leave the map as it was. A caller that catches the
+    // failure and closes the generator would otherwise get nil written for a name whose bytes
+    // never reached the buffer, emitting a map whose count disagrees with its contents.
+    @Test
+    public void aKeyWhoseSerializerThrowsLeavesNoPendingEntry() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new ThrowingSerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            gen.writeName("ok");
+            gen.writeNumber(1);
+            assertThrows(IllegalStateException.class,
+                    () -> gen.writeName(new MessagePackSerializedString(pojo)));
+        }
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("ok", unpacker.unpackString());
+            assertEquals(1, unpacker.unpackInt());
+            assertFalse(unpacker.hasNext());
+        }
+    }
+
+    // A key that never reached the buffer must not be remembered by duplicate detection, or
+    // writing it again after the failure is rejected as a duplicate of something never written.
+    @Test
+    public void aFailedKeyIsNotRememberedAsSeen() throws IOException
+    {
+        SimpleModule mod = new SimpleModule("test");
+        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
+        mod.addSerializer(TinyPojo.class, new FlakySerializer());
+        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory())
+                .enable(StreamWriteFeature.STRICT_DUPLICATE_DETECTION)
+                .addModule(mod)
+                .build();
+
+        TinyPojo pojo = new TinyPojo();
+        pojo.t = "foo";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonGenerator gen = mapper.createGenerator(out)) {
+            gen.writeStartObject();
+            assertThrows(IllegalStateException.class,
+                    () -> gen.writeName(new MessagePackSerializedString(pojo)));
+            // The retry writes the same key, which the first attempt never emitted.
+            gen.writeName(new MessagePackSerializedString(pojo));
+            gen.writeNumber(1);
+            gen.writeEndObject();
+        }
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("foo", unpacker.unpackString());
+            assertEquals(1, unpacker.unpackInt());
+        }
+    }
+
     // A name the format cannot write must leave the context as it was. Otherwise the caller
     // catches the failure, closes the generator, and AUTO_CLOSE_CONTENT writes nil for a name
     // whose bytes never reached the buffer, producing a map entry with a value and no key.

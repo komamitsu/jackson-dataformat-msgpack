@@ -193,6 +193,41 @@ public class MessagePackGenerator
         }
     }
 
+    /**
+     * Records a name once its bytes are in the buffer. The duplicate check runs here rather
+     * than earlier because {@code DupDetector} remembers every name it is shown and offers no
+     * way to forget one: checking a key that then failed to encode would reject the next
+     * attempt to write it as a duplicate. On rejection the key's bytes are rolled back.
+     */
+    private void recordName(String name, int start, int holds)
+    {
+        try {
+            writeContext.checkDuplicate(name);
+        }
+        catch (RuntimeException e) {
+            writer.discardFrom(start, holds);
+            throw e;
+        }
+        writeContext.setName(name);
+    }
+
+    /**
+     * Writes a key's bytes, leaving the buffer as it was if that fails. The caller records the
+     * name only afterwards, so a key that fails leaves neither bytes nor a pending name: a
+     * caller that catches the failure and closes the generator does not get a value written
+     * for a name that never reached the output.
+     */
+    private void writeKeyBytes(Object raw, int start, int holds)
+    {
+        try {
+            pack(w -> packKey(raw));
+        }
+        catch (RuntimeException e) {
+            writer.discardFrom(start, holds);
+            throw e;
+        }
+    }
+
     private void packKey(Object key) throws IOException
     {
         if (key instanceof String) {
@@ -347,8 +382,11 @@ public class MessagePackGenerator
             if (!writeContext.acceptsName()) {
                 _reportError("Can not write a property id, expecting a value");
             }
-            writeContext.setName(String.valueOf(id));
+            String asName = String.valueOf(id);
+            int start = writer.position();
+            int holds = writer.holdDepth();
             pack(w -> w.packLong(id));
+            recordName(asName, start, holds);
         }
         else {
             writeName(String.valueOf(id));
@@ -369,9 +407,13 @@ public class MessagePackGenerator
         if (!writeContext.acceptsName()) {
             _reportError("Can not write a property name, expecting a value");
         }
+        // The name is recorded only once its bytes are in the buffer: a failure in between
+        // would otherwise leave the context expecting a value for a name nobody wrote.
         MessagePackWriter.checkEncodable(name);
-        writeContext.setName(name);
+        int start = writer.position();
+        int holds = writer.holdDepth();
         pack(w -> w.packString(name));
+        recordName(name, start, holds);
         return this;
     }
 
@@ -384,9 +426,12 @@ public class MessagePackGenerator
                 _reportError("Can not write a property name, expecting a value");
             }
             Object raw = ((MessagePackSerializedString) name).getRawValue();
+            String asName = name.getValue();
             checkKeyRepresentable(raw);
-            writeContext.setName(name.getValue());
-            pack(w -> packKey(raw));
+            int start = writer.position();
+            int holds = writer.holdDepth();
+            writeKeyBytes(raw, start, holds);
+            recordName(asName, start, holds);
         }
         else {
             writeName(name.getValue());
