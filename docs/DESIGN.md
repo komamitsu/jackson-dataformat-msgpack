@@ -420,8 +420,9 @@ fields above 999999999 are rejected instead of being folded into the seconds.
   `ExtensionTypeCustomDeserializers` for turning a type into a Java object on read.
 - **Null arguments**: `writeString(null)`, `writeNumber((BigInteger) null)` and the like
   write nil, as Jackson's own generators do.
-- **Duplicate keys**: `STRICT_DUPLICATE_DETECTION` uses Jackson's `DupDetector` for string
-  names and a flag for nil; distinct keys that print alike (`1` and `"1"`) collide, as in
+- **Duplicate keys**: `STRICT_DUPLICATE_DETECTION` uses Jackson's `DupDetector` for names.
+  The parser also tracks a nil key, which other writers can produce, with a flag; the
+  generator never writes one. Distinct keys that print alike (`1` and `"1"`) collide, as in
   Jackson's CBOR generator.
 
 ## 6. Testing
