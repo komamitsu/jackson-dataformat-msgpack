@@ -45,8 +45,13 @@ final class UnreadableKeyGuard
     // before it serializes anything.
     private transient volatile ObjectMapper mapper;
 
-    void bind(ObjectMapper mapper)
+    // A guard belongs to exactly one mapper, whose read side it asks, so binding it again (to
+    // another mapper sharing its module, say) would answer for the wrong configuration.
+    synchronized void bind(ObjectMapper mapper)
     {
+        if (this.mapper != null) {
+            throw new IllegalStateException("This key guard is already bound to a mapper");
+        }
         this.mapper = mapper;
     }
 
