@@ -107,8 +107,9 @@ final class UnreadableKeyGuard
             ctxt.reportBadDefinition(keyType, "A " + ClassUtil.nameOf(keyType.getRawClass())
                     + " key cannot be read back as a map key: a property name is a String, and"
                     + " no key deserializer turns that String back into this type. Give the type a"
-                    + " constructor or a static valueOf(String) taking one String, or register a key"
-                    + " serializer and a KeyDeserializer for it.");
+                    + " constructor, a static valueOf or fromString, or a @JsonCreator factory taking"
+                    + " one String, or provide a KeyDeserializer (registered on the mapper, or with"
+                    + " @JsonDeserialize(keyUsing) on the class or the map property).");
         }
     }
 }
