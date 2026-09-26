@@ -256,6 +256,12 @@ so pair it with a matching `KeyDeserializer`.
 This check, like the integer handling of `Short` and `Byte` keys, is part of `MessagePackMapper`;
 a plain `ObjectMapper` built on `MessagePackFactory` does not have it.
 
+### UUID values
+
+`MessagePackMapper` writes a `UUID` value as its 36-character string, which reads back as the
+same `UUID`. Jackson would otherwise write it as 16 bytes of binary, which this library does
+not read back as a `UUID`.
+
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
 By default, for backward compatibility, a BigDecimal is written as a MessagePack integer if it has no fractional part, and otherwise as a float64 if that represents it exactly. A value that fits neither (too many digits for a double, or a magnitude beyond 64-bit integers) fails with `IllegalArgumentException`. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.

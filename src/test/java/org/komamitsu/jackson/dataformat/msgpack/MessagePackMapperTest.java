@@ -16,12 +16,18 @@
 package org.komamitsu.jackson.dataformat.msgpack;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DatabindException;
 import org.junit.jupiter.api.Test;
+import org.msgpack.core.MessagePack;
+import org.msgpack.core.MessageUnpacker;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Collections;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -106,5 +112,22 @@ public class MessagePackMapperTest
                 .build();
         shouldSuccessToHandleBigInteger(messagePackMapper);
         shouldSuccessToHandleBigDecimal(messagePackMapper);
+    }
+
+    // A UUID value is written as its 36-character string, which reads back as the same UUID.
+    @Test
+    public void aUuidValueIsWrittenAsAString() throws IOException
+    {
+        UUID uuid = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        MessagePackMapper mapper = new MessagePackMapper();
+        byte[] bytes = mapper.writeValueAsBytes(Collections.singletonMap("u", uuid));
+
+        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
+            assertEquals(1, unpacker.unpackMapHeader());
+            assertEquals("u", unpacker.unpackString());
+            assertEquals("123e4567-e89b-12d3-a456-426614174000", unpacker.unpackString());
+        }
+        assertEquals(Collections.singletonMap("u", uuid),
+                mapper.readValue(bytes, new TypeReference<Map<String, UUID>>() {}));
     }
 }
