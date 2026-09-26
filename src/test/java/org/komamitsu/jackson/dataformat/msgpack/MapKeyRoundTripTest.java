@@ -475,6 +475,32 @@ public class MapKeyRoundTripTest
         assertEquals(Collections.singletonMap("s7", "v"), mapper.readValue(bytes, new TypeReference<Map<String, String>>() {}));
     }
 
+    public static class PointKeyReader
+            extends KeyDeserializer
+    {
+        @Override
+        public Object deserializeKey(String key, DeserializationContext ctxt)
+        {
+            return new Point();
+        }
+    }
+
+    public static class Points
+    {
+        @JsonDeserialize(keyUsing = PointKeyReader.class)
+        public Map<Point, String> byPoint = Collections.singletonMap(new Point(), "v");
+    }
+
+    // A key deserializer named on the map property makes its keys readable, so they are written.
+    @Test
+    public void aPropertyLevelKeyDeserializerMakesAKeyWritable() throws IOException
+    {
+        byte[] bytes = INTEGER_KEYS.writeValueAsBytes(new Points());
+        Points back = INTEGER_KEYS.readValue(bytes, Points.class);
+        assertEquals(1, back.byPoint.size());
+        assertEquals("v", back.byPoint.values().iterator().next());
+    }
+
     // A key serializer the user registers is trusted: reading back is then the user's contract.
     @Test
     public void aRegisteredKeySerializerIsTrusted() throws IOException

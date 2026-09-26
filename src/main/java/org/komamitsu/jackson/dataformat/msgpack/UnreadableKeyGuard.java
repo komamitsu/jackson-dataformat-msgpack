@@ -17,6 +17,7 @@ package org.komamitsu.jackson.dataformat.msgpack;
 
 import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.BeanDescription;
+import tools.jackson.databind.BeanProperty;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.ObjectMapper;
@@ -56,7 +57,7 @@ final class UnreadableKeyGuard
         if (!isJacksonDefault(serializer) || isReadable(keyType)) {
             return serializer;
         }
-        return new Refusing(keyType);
+        return new Refusing(keyType, serializer);
     }
 
     private static boolean isJacksonDefault(ValueSerializer<?> serializer)
@@ -79,11 +80,25 @@ final class UnreadableKeyGuard
             extends StdSerializer<Object>
     {
         private final JavaType keyType;
+        private final ValueSerializer<?> original;
 
-        Refusing(JavaType keyType)
+        Refusing(JavaType keyType, ValueSerializer<?> original)
         {
             super(Object.class);
             this.keyType = keyType;
+            this.original = original;
+        }
+
+        // A key deserializer named on the map property (@JsonDeserialize(keyUsing)) reads the
+        // key back, but the type-level lookup cannot see it, so the property is checked here.
+        @Override
+        public ValueSerializer<?> createContextual(SerializationContext ctxt, BeanProperty property)
+        {
+            if (property != null && property.getMember() != null
+                    && ctxt.getAnnotationIntrospector().findKeyDeserializer(ctxt.getConfig(), property.getMember()) != null) {
+                return original.createContextual(ctxt, property);
+            }
+            return this;
         }
 
         @Override

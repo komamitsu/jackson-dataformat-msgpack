@@ -311,8 +311,10 @@ replaces it with one that fails on write unless the mapper's own read side can b
 deserializer for the type (`findKeyDeserializer` on a context from
 `ObjectMapper._deserializationContext()`). That lookup is the one a read performs, so it
 covers Jackson's built-in key types, enums, String creators, `@JsonDeserialize(keyUsing)` and
-any module or `KeyDeserializer` registered on the mapper, with no list to maintain. A key
-serializer the user registered is left alone.
+any module or `KeyDeserializer` registered on the mapper, with no list to maintain. That
+lookup has no property, so `@JsonDeserialize(keyUsing)` on the map property itself is checked
+when the refusing serializer is contextualized with that property, and the original key
+serializer is handed back. A key serializer the user registered is left alone.
 
 Each mapper gets its own guard, bound to it right after construction: `MessagePackMapper`
 registers the guard's module in the one constructor every build path goes through, under a

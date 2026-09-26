@@ -224,8 +224,8 @@ A key of any other type is written as the same string Jackson writes for JSON: t
 its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. The mapper must be able to
 build the type back from that string: through a single-`String` constructor, a static
 `valueOf(String)` or `fromString(String)`, a `@JsonCreator` factory taking one `String`, a
-`@JsonDeserialize(keyUsing = ...)` on the class, or a `KeyDeserializer` registered on the
-mapper. Otherwise writing the key fails with an `InvalidDefinitionException`, because it could
+`@JsonDeserialize(keyUsing = ...)` on the class or on the map property, or a `KeyDeserializer`
+registered on the mapper. Otherwise writing the key fails with an `InvalidDefinitionException`, because it could
 not be read back.
 
 ```java
