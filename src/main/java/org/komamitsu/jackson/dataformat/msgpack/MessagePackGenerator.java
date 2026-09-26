@@ -212,10 +212,26 @@ public class MessagePackGenerator
     }
 
     /**
-     * Writes a key's bytes, leaving the buffer as it was if that fails. The caller records the
-     * name only afterwards, so a key that fails leaves neither bytes nor a pending name: a
-     * caller that catches the failure and closes the generator does not get a value written
-     * for a name that never reached the output.
+     * Writes a key's bytes, leaving the buffer as it was if that fails. The name is recorded by
+     * the caller afterwards, so an abandoned key leaves neither bytes nor a pending name.
+     *
+     * <p>A complex key is written by a nested generator sharing this writer, and it can finish
+     * having written nothing: its serializer wrote no tokens, or it left a container open and
+     * the nested close() discarded it (AUTO_CLOSE_CONTENT off). Serializing {@code {pojo: 42}}
+     * would then patch a header counting an entry whose key is missing:
+     *
+     * <pre>
+     *   writeStartObject       [ ?? ]         outer map header reserved at offset 0
+     *   writeName(pojo)   -&gt; nested generator
+     *     writeStartObject     [ ?? | ?? ]    the key's own header reserved at offset 1
+     *     (serializer stops here)
+     *     nested close()       [ ?? ]         key discarded, buffer back where it started
+     *   writeNumber(42)        [ ?? | 2a ]
+     *   writeEndObject         [ 81 | 2a ]    map(1) holding only 42
+     * </pre>
+     *
+     * <p>A reader takes that 42 as the key and then runs out of input looking for its value,
+     * so the missing key is reported here instead.
      */
     private void writeKeyBytes(Object raw, int start, int holds)
     {
@@ -225,6 +241,12 @@ public class MessagePackGenerator
         catch (RuntimeException e) {
             writer.discardFrom(start, holds);
             throw e;
+        }
+        if (writer.position() == start) {
+            // Counted as a value but nothing reached the buffer: the nested generator discarded
+            // an unfinished key (AUTO_CLOSE_CONTENT off).
+            writer.discardFrom(start, holds);
+            _reportError("Map key was not written: its serializer produced no bytes");
         }
     }
 
@@ -267,10 +289,24 @@ public class MessagePackGenerator
             // Any other key type is serialized as a nested value in key position, straight into
             // this generator's writer. The nested generator only tracks its own context stack,
             // but starts counting depth where this one is so the nesting limit still holds.
-            try (MessagePackGenerator nested = new MessagePackGenerator(
+            MessagePackGenerator nested = new MessagePackGenerator(
                     objectWriteContext(), _ioContext, _streamWriteFeatures, output,
-                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys)) {
+                    writer, false, writeContext.getNestingDepth(), str8FormatSupport, supportIntegerKeys);
+            try {
                 objectWriteContext().writeValue(nested, key);
+            }
+            finally {
+                // Closed here rather than with try-with-resources so the count below can be read
+                // from it afterwards: close() is what completes an unfinished value.
+                nested.close();
+            }
+            // A name stands for one value. A serializer that wrote none leaves the entry with no
+            // key at all; one that wrote several leaves the extras where the map's next entry
+            // belongs. Reporting from here throws through writeKeyBytes, whose catch discards
+            // the key's bytes, so neither case reaches the stream.
+            int written = nested.writeContext.getEntryCount();
+            if (written != 1) {
+                _reportError("A map key must be a single value, but its serializer wrote " + written);
             }
         }
     }
