@@ -32,7 +32,6 @@ import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.ValueSerializer;
-import tools.jackson.databind.annotation.JsonSerialize;
 import tools.jackson.databind.module.SimpleModule;
 import org.junit.jupiter.api.Test;
 import org.msgpack.core.ExtensionTypeHeader;
@@ -67,10 +66,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.hamcrest.MatcherAssert.assertThat;
 
@@ -506,291 +503,6 @@ public class MessagePackGeneratorTest
         ObjectMapper mapperWithConfig = new MessagePackMapper(new MessagePackFactory().setStr8FormatSupport(false));
         byte[] resultWithoutStr8Format = mapperWithConfig.writeValueAsBytes(str8LengthString);
         assertNotEquals(resultWithoutStr8Format[0], MessagePack.Code.STR8);
-    }
-
-    interface NonStringKeyMapHolder
-    {
-        Map<Integer, String> getIntMap();
-
-        void setIntMap(Map<Integer, String> intMap);
-
-        Map<Long, String> getLongMap();
-
-        void setLongMap(Map<Long, String> longMap);
-
-        Map<Float, String> getFloatMap();
-
-        void setFloatMap(Map<Float, String> floatMap);
-
-        Map<Double, String> getDoubleMap();
-
-        void setDoubleMap(Map<Double, String> doubleMap);
-
-        Map<BigInteger, String> getBigIntMap();
-
-        void setBigIntMap(Map<BigInteger, String> doubleMap);
-    }
-
-    public static class NonStringKeyMapHolderWithAnnotation
-            implements NonStringKeyMapHolder
-    {
-        @JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-        private Map<Integer, String> intMap = new HashMap<Integer, String>();
-
-        @JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-        private Map<Long, String> longMap = new HashMap<Long, String>();
-
-        @JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-        private Map<Float, String> floatMap = new HashMap<Float, String>();
-
-        @JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-        private Map<Double, String> doubleMap = new HashMap<Double, String>();
-
-        @JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-        private Map<BigInteger, String> bigIntMap = new HashMap<BigInteger, String>();
-
-        @Override
-        public Map<Integer, String> getIntMap()
-        {
-            return intMap;
-        }
-
-        @Override
-        public void setIntMap(Map<Integer, String> intMap)
-        {
-            this.intMap = intMap;
-        }
-
-        @Override
-        public Map<Long, String> getLongMap()
-        {
-            return longMap;
-        }
-
-        @Override
-        public void setLongMap(Map<Long, String> longMap)
-        {
-            this.longMap = longMap;
-        }
-
-        @Override
-        public Map<Float, String> getFloatMap()
-        {
-            return floatMap;
-        }
-
-        @Override
-        public void setFloatMap(Map<Float, String> floatMap)
-        {
-            this.floatMap = floatMap;
-        }
-
-        @Override
-        public Map<Double, String> getDoubleMap()
-        {
-            return doubleMap;
-        }
-
-        @Override
-        public void setDoubleMap(Map<Double, String> doubleMap)
-        {
-            this.doubleMap = doubleMap;
-        }
-
-        @Override
-        public Map<BigInteger, String> getBigIntMap()
-        {
-            return bigIntMap;
-        }
-
-        @Override
-        public void setBigIntMap(Map<BigInteger, String> bigIntMap)
-        {
-            this.bigIntMap = bigIntMap;
-        }
-    }
-
-    public static class NonStringKeyMapHolderWithoutAnnotation
-            implements NonStringKeyMapHolder
-    {
-        private Map<Integer, String> intMap = new HashMap<Integer, String>();
-
-        private Map<Long, String> longMap = new HashMap<Long, String>();
-
-        private Map<Float, String> floatMap = new HashMap<Float, String>();
-
-        private Map<Double, String> doubleMap = new HashMap<Double, String>();
-
-        private Map<BigInteger, String> bigIntMap = new HashMap<BigInteger, String>();
-
-        @Override
-        public Map<Integer, String> getIntMap()
-        {
-            return intMap;
-        }
-
-        @Override
-        public void setIntMap(Map<Integer, String> intMap)
-        {
-            this.intMap = intMap;
-        }
-
-        @Override
-        public Map<Long, String> getLongMap()
-        {
-            return longMap;
-        }
-
-        @Override
-        public void setLongMap(Map<Long, String> longMap)
-        {
-            this.longMap = longMap;
-        }
-
-        @Override
-        public Map<Float, String> getFloatMap()
-        {
-            return floatMap;
-        }
-
-        @Override
-        public void setFloatMap(Map<Float, String> floatMap)
-        {
-            this.floatMap = floatMap;
-        }
-
-        @Override
-        public Map<Double, String> getDoubleMap()
-        {
-            return doubleMap;
-        }
-
-        @Override
-        public void setDoubleMap(Map<Double, String> doubleMap)
-        {
-            this.doubleMap = doubleMap;
-        }
-
-        @Override
-        public Map<BigInteger, String> getBigIntMap()
-        {
-            return bigIntMap;
-        }
-
-        @Override
-        public void setBigIntMap(Map<BigInteger, String> bigIntMap)
-        {
-            this.bigIntMap = bigIntMap;
-        }
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    public void testNonStringKey()
-            throws Exception
-    {
-        for (Class<? extends NonStringKeyMapHolder> clazz :
-                Arrays.asList(
-                        NonStringKeyMapHolderWithAnnotation.class,
-                        NonStringKeyMapHolderWithoutAnnotation.class)) {
-            NonStringKeyMapHolder mapHolder = clazz.getConstructor().newInstance();
-            mapHolder.getIntMap().put(Integer.MAX_VALUE, "i");
-            mapHolder.getLongMap().put(Long.MIN_VALUE, "l");
-            mapHolder.getFloatMap().put(Float.MAX_VALUE, "f");
-            mapHolder.getDoubleMap().put(Double.MIN_VALUE, "d");
-            mapHolder.getBigIntMap().put(BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE), "bi");
-
-            ObjectMapper objectMapper;
-            if (mapHolder instanceof NonStringKeyMapHolderWithoutAnnotation) {
-                SimpleModule mod = new SimpleModule("test");
-                mod.addKeySerializer(Object.class, new MessagePackKeySerializer());
-                objectMapper = MessagePackMapper.builder(new MessagePackFactory())
-                        .addModule(mod)
-                        .build();
-            }
-            else {
-                objectMapper = new MessagePackMapper(new MessagePackFactory());
-            }
-
-            byte[] bytes = objectMapper.writeValueAsBytes(mapHolder);
-            MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-            assertEquals(5, unpacker.unpackMapHeader());
-            for (int i = 0; i < 5; i++) {
-                String keyName = unpacker.unpackString();
-                assertThat(unpacker.unpackMapHeader(), is(1));
-                if (keyName.equals("intMap")) {
-                    assertThat(unpacker.unpackInt(), is(Integer.MAX_VALUE));
-                    assertThat(unpacker.unpackString(), is("i"));
-                }
-                else if (keyName.equals("longMap")) {
-                    assertThat(unpacker.unpackLong(), is(Long.MIN_VALUE));
-                    assertThat(unpacker.unpackString(), is("l"));
-                }
-                else if (keyName.equals("floatMap")) {
-                    assertThat(unpacker.unpackFloat(), is(Float.MAX_VALUE));
-                    assertThat(unpacker.unpackString(), is("f"));
-                }
-                else if (keyName.equals("doubleMap")) {
-                    assertThat(unpacker.unpackDouble(), is(Double.MIN_VALUE));
-                    assertThat(unpacker.unpackString(), is("d"));
-                }
-                else if (keyName.equals("bigIntMap")) {
-                    assertThat(unpacker.unpackBigInteger(), is(BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE)));
-                    assertThat(unpacker.unpackString(), is("bi"));
-                }
-                else {
-                    fail("Unexpected key name: " + keyName);
-                }
-            }
-        }
-    }
-
-    @Test
-    public void testComplexTypeKey()
-            throws IOException
-    {
-        HashMap<TinyPojo, Integer> map = new HashMap<TinyPojo, Integer>();
-        TinyPojo pojo = new TinyPojo();
-        pojo.t = "foo";
-        map.put(pojo, 42);
-
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
-        ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
-                .addModule(mod)
-                .build();
-        byte[] bytes = objectMapper.writeValueAsBytes(map);
-
-        MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("t"));
-        assertThat(unpacker.unpackString(), is("foo"));
-        assertThat(unpacker.unpackInt(), is(42));
-    }
-
-    @Test
-    public void testComplexTypeKeyWithV06Format()
-            throws IOException
-    {
-        HashMap<TinyPojo, Integer> map = new HashMap<TinyPojo, Integer>();
-        TinyPojo pojo = new TinyPojo();
-        pojo.t = "foo";
-        map.put(pojo, 42);
-
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(TinyPojo.class, new MessagePackKeySerializer());
-        ObjectMapper objectMapper = MessagePackMapper.builder(new MessagePackFactory())
-                .annotationIntrospector(new JsonArrayFormat())
-                .addModule(mod)
-                .build();
-        byte[] bytes = objectMapper.writeValueAsBytes(map);
-
-        MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes);
-        assertThat(unpacker.unpackMapHeader(), is(1));
-        assertThat(unpacker.unpackArrayHeader(), is(1));
-        assertThat(unpacker.unpackString(), is("foo"));
-        assertThat(unpacker.unpackInt(), is(42));
     }
 
     public static class IntegerSerializerStoringAsString
@@ -1378,109 +1090,12 @@ public class MessagePackGeneratorTest
         gen.close();
     }
 
-    static class KeyWithList
-    {
-        public String name;
-        public List<Integer> values;
-
-        KeyWithList(String name, List<Integer> values)
-        {
-            this.name = name;
-            this.values = values;
-        }
-    }
-
-    @Test
-    public void complexKeyCountsTowardsTheNestingLimit()
-    {
-        // Outer map (1), the key object (2), the key's list (3).
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        Map<KeyWithList, Integer> map = Collections.singletonMap(new KeyWithList("k", Arrays.asList(1)), 1);
-
-        ObjectMapper limitedToTwo = MessagePackMapper.builder(withMaxNestingDepth(2)).addModule(mod).build();
-        assertThrows(tools.jackson.core.exc.StreamConstraintsException.class, () -> limitedToTwo.writeValueAsBytes(map));
-
-        ObjectMapper limitedToThree = MessagePackMapper.builder(withMaxNestingDepth(3)).addModule(mod).build();
-        byte[] bytes = limitedToThree.writeValueAsBytes(map);
-        assertEquals((byte) 0x81, bytes[0]);
-    }
-
-    private static MessagePackFactory withMaxNestingDepth(int depth)
-    {
-        return (MessagePackFactory) new MessagePackFactory().rebuild()
-                .streamWriteConstraints(tools.jackson.core.StreamWriteConstraints.builder().maxNestingDepth(depth).build())
-                .build();
-    }
-
-    @Test
-    public void complexKeyWithNestedContainerIsWrittenInPlace() throws IOException
-    {
-        // The key's own containers get patched inside the parent's buffer, between the
-        // parent map's reserved header and the value that follows.
-        SimpleModule mod = new SimpleModule("test");
-        mod.addKeySerializer(KeyWithList.class, new MessagePackKeySerializer());
-        ObjectMapper mapper = MessagePackMapper.builder(new MessagePackFactory()).addModule(mod).build();
-
-        Map<KeyWithList, List<String>> map = new java.util.LinkedHashMap<>();
-        map.put(new KeyWithList("first", Arrays.asList(1, 2, 3)), Arrays.asList("a", "b"));
-        map.put(new KeyWithList("second", java.util.Collections.emptyList()), Arrays.asList("c"));
-        byte[] bytes = mapper.writeValueAsBytes(map);
-
-        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(bytes)) {
-            assertEquals(2, unpacker.unpackMapHeader());
-
-            assertEquals(2, unpacker.unpackMapHeader());
-            assertEquals("name", unpacker.unpackString());
-            assertEquals("first", unpacker.unpackString());
-            assertEquals("values", unpacker.unpackString());
-            assertEquals(3, unpacker.unpackArrayHeader());
-            assertEquals(1, unpacker.unpackInt());
-            assertEquals(2, unpacker.unpackInt());
-            assertEquals(3, unpacker.unpackInt());
-            assertEquals(2, unpacker.unpackArrayHeader());
-            assertEquals("a", unpacker.unpackString());
-            assertEquals("b", unpacker.unpackString());
-
-            assertEquals(2, unpacker.unpackMapHeader());
-            assertEquals("name", unpacker.unpackString());
-            assertEquals("second", unpacker.unpackString());
-            assertEquals("values", unpacker.unpackString());
-            assertEquals(0, unpacker.unpackArrayHeader());
-            assertEquals(1, unpacker.unpackArrayHeader());
-            assertEquals("c", unpacker.unpackString());
-
-            assertFalse(unpacker.hasNext());
-        }
-    }
-
     @Test
     public void testVersion()
     {
         assertNotEquals(null, factory.version());
         assertEquals("org.komamitsu", factory.version().getGroupId());
         assertEquals("jackson-dataformat-msgpack", factory.version().getArtifactId());
-    }
-
-    @Test
-    public void testSerializedStringMethods() throws IOException
-    {
-        MessagePackSerializedString s = new MessagePackSerializedString("hello");
-
-        byte[] utf8Target = new byte[10];
-        int written = s.appendUnquotedUTF8(utf8Target, 2);
-        assertEquals(5, written);
-        assertArrayEquals(new byte[] {'h', 'e', 'l', 'l', 'o'}, Arrays.copyOfRange(utf8Target, 2, 7));
-
-        char[] charTarget = new char[10];
-        written = s.appendUnquoted(charTarget, 3);
-        assertEquals(5, written);
-        assertEquals("hello", new String(charTarget, 3, 5));
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        written = s.writeUnquotedUTF8(baos);
-        assertEquals(5, written);
-        assertArrayEquals("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8), baos.toByteArray());
     }
 
     // Regression: addValueNode must call writeContext.writeValue() so that the Jackson write
@@ -1523,32 +1138,6 @@ public class MessagePackGeneratorTest
         generator.writeString("value");
         generator.writeEndObject();
         generator.close();
-    }
-
-    @Test
-    public void testNullSerializedStringKeyDoesNotThrowNpe()
-            throws IOException
-    {
-        // writeName(MessagePackSerializedString(null)) calls getValue() → null.toString() → NPE.
-        // A null key should be serialized as msgpack nil, not crash.
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        JsonGenerator generator = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), baos);
-        generator.writeStartObject();
-        generator.writeName(new MessagePackSerializedString(null));
-        generator.writeNumber(42);
-        generator.writeEndObject();
-        generator.close();
-
-        // Verify the null key round-trips as PROPERTY_NAME with null current name
-        try (JsonParser parser =
-                new MessagePackFactory().createParser(ObjectReadContext.empty(), baos.toByteArray())) {
-            assertEquals(JsonToken.START_OBJECT, parser.nextToken());
-            assertEquals(JsonToken.PROPERTY_NAME, parser.nextToken());
-            assertNull(parser.currentName());
-            assertEquals(JsonToken.VALUE_NUMBER_INT, parser.nextToken());
-            assertEquals(42, parser.getIntValue());
-            assertEquals(JsonToken.END_OBJECT, parser.nextToken());
-        }
     }
 
     @Test
@@ -1644,56 +1233,8 @@ public class MessagePackGeneratorTest
         }
     }
 
-    // Bug: same DupDetector NPE as the read-path bug, on the write side.
-    // writeName(SerializableString) calls writeContext.writeName(name.getValue())
-    // where MessagePackSerializedString(null).getValue() == null.  With
-    // STRICT_DUPLICATE_DETECTION enabled and a prior non-null key already seen,
-    // DupDetector.isDup(null) reaches name.equals(_firstName) → NPE.
-    @Test
-    public void testNullKeyWithWriteDupDetectionDoesNotNPE() throws IOException
-    {
-        MessagePackFactory f = new MessagePackFactoryBuilder()
-                .enable(StreamWriteFeature.STRICT_DUPLICATE_DETECTION)
-                .build();
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (JsonGenerator gen = f.createGenerator(ObjectWriteContext.empty(), baos)) {
-            gen.writeStartObject();
-            gen.writeName("foo");
-            gen.writeNumber(1);
-            // MessagePackSerializedString(null).getValue() == null
-            gen.writeName(new MessagePackSerializedString(null)); // Bug: NPE here
-            gen.writeNumber(2);
-            gen.writeEndObject();
-        }
-    }
-
-    // A name the format cannot write must leave the context as it was. Otherwise the caller
-    // catches the failure, closes the generator, and AUTO_CLOSE_CONTENT writes nil for a name
-    // whose bytes never reached the buffer, producing a map entry with a value and no key.
-    @Test
-    public void aRejectedKeyLeavesNoPhantomName() throws IOException
-    {
-        BigInteger tooLarge = BigInteger.ONE.shiftLeft(64);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try (JsonGenerator gen = new MessagePackFactory().createGenerator(ObjectWriteContext.empty(), out)) {
-            gen.writeStartObject();
-            gen.writeName("ok");
-            gen.writeNumber(1);
-            assertThrows(IllegalArgumentException.class,
-                    () -> gen.writeName(new MessagePackSerializedString(tooLarge)));
-        }
-
-        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(out.toByteArray())) {
-            assertEquals(1, unpacker.unpackMapHeader());
-            assertEquals("ok", unpacker.unpackString());
-            assertEquals(1, unpacker.unpackInt());
-            assertFalse(unpacker.hasNext());
-        }
-    }
-
-    // Same for a name rejected by strict duplicate detection: no bytes were written, so the
-    // context must not be left expecting a value for it.
+    // A name rejected by strict duplicate detection writes no bytes, so the context must not
+    // be left expecting a value for it.
     @Test
     public void aRejectedDuplicateNameLeavesNoPhantomName() throws IOException
     {
@@ -1785,44 +1326,6 @@ public class MessagePackGeneratorTest
             gen.writeEndArray();
         }
         assertArrayEquals(new byte[] {(byte) 0x94, (byte) 0xc0, (byte) 0xc0, (byte) 0xc0, (byte) 0xc0}, out.toByteArray());
-    }
-
-    @Test
-    public void testSecondNullKeyIsADuplicateUnderStrictDetection()
-    {
-        MessagePackFactory f = new MessagePackFactoryBuilder()
-                .enable(StreamWriteFeature.STRICT_DUPLICATE_DETECTION)
-                .build();
-        JsonGenerator gen = f.createGenerator(ObjectWriteContext.empty(), new ByteArrayOutputStream());
-        gen.writeStartObject();
-        gen.writeName(new MessagePackSerializedString(null));
-        gen.writeNumber(1);
-        assertThrows(tools.jackson.core.exc.StreamWriteException.class,
-                () -> gen.writeName(new MessagePackSerializedString(null)));
-
-        // A nil key in a fresh object is fine again.
-        JsonGenerator gen2 = f.createGenerator(ObjectWriteContext.empty(), new ByteArrayOutputStream());
-        gen2.writeStartArray();
-        gen2.writeStartObject();
-        gen2.writeName(new MessagePackSerializedString(null));
-        gen2.writeNumber(1);
-        gen2.writeEndObject();
-        gen2.writeStartObject();
-        gen2.writeName(new MessagePackSerializedString(null));
-        gen2.writeNumber(2);
-        gen2.writeEndObject();
-        gen2.writeEndArray();
-        gen2.close();
-    }
-
-    // Bug: MessagePackSerializedString.charLength() calls getValue().length()
-    // unconditionally; getValue() returns null when value is null → NPE.
-    @Test
-    public void testSerializedStringNullValueCharLengthDoesNotNPE()
-    {
-        MessagePackSerializedString s = new MessagePackSerializedString(null);
-        // Bug: null.length() → NullPointerException
-        assertEquals(0, s.charLength());
     }
 
     @Test

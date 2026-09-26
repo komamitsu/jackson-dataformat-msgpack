@@ -365,9 +365,7 @@ final class MessagePackWriter
     /**
      * Drops everything encoded from the given offset on, leaving the given number of holds in
      * place. Used to abandon an unfinished container while keeping complete values written
-     * before it. A nested generator writing a complex map key shares this writer, so it passes
-     * the hold depth it found on entry rather than zero, which would forget the containers its
-     * parent still has open.
+     * before it.
      */
     void discardFrom(int offset, int remainingHolds)
     {

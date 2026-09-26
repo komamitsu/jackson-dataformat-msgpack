@@ -17,11 +17,16 @@ package org.komamitsu.jackson.dataformat.msgpack;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 
+import tools.jackson.core.JsonGenerator;
 import tools.jackson.core.Version;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
 import tools.jackson.databind.cfg.MapperBuilder;
 import tools.jackson.databind.cfg.MapperBuilderState;
+import tools.jackson.databind.module.SimpleModule;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
@@ -34,6 +39,10 @@ public class MessagePackMapper extends ObjectMapper
         public Builder(MessagePackFactory f)
         {
             super(f);
+            // Registered first, so a Short or Byte key serializer from a later module wins.
+            addModule(new SimpleModule("msgpack-small-integer-keys")
+                    .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
+                    .addKeySerializer(Byte.class, new SmallIntegerKeySerializer()));
         }
 
         protected Builder(StateImpl state)
@@ -87,6 +96,26 @@ public class MessagePackMapper extends ObjectMapper
         }
     }
 
+    /**
+     * Writes a Short or Byte map key through {@code writePropertyId}, as Jackson already does
+     * for Integer and Long keys, so all four become MessagePack integers when integer keys are
+     * enabled. With them disabled the generator writes the same decimal string Jackson would.
+     * Extends {@link ValueSerializer} directly because a mapper is JDK-serialized with its
+     * modules, and that needs a non-serializable superclass with a no-arg constructor.
+     */
+    static final class SmallIntegerKeySerializer
+            extends ValueSerializer<Number>
+            implements Serializable
+    {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void serialize(Number value, JsonGenerator gen, SerializationContext ctxt)
+        {
+            gen.writePropertyId(value.longValue());
+        }
+    }
+
     public MessagePackMapper()
     {
         this(new Builder(new MessagePackFactory()));
@@ -99,7 +128,23 @@ public class MessagePackMapper extends ObjectMapper
 
     protected MessagePackMapper(Builder builder)
     {
-        super(builder);
+        this(builder, new UnreadableKeyGuard());
+    }
+
+    // Every mapper, however it is built, gets its own key guard bound to itself, since the
+    // guard asks this mapper's read side whether a key type can be read back. The module has
+    // a fixed name, so one registered by an earlier build of the same builder is replaced.
+    private MessagePackMapper(Builder builder, UnreadableKeyGuard keyGuard)
+    {
+        super(builder.addModule(new SimpleModule("msgpack-key-guard").setSerializerModifier(keyGuard)));
+        keyGuard.bind(this);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public Builder rebuild()
+    {
+        return new Builder((Builder.StateImpl) _savedBuilderState);
     }
 
     public static Builder builder()

@@ -200,31 +200,61 @@ ObjectMapper objectMapper = new MessagePackMapper(new MessagePackFactory().setSt
 byte[] resultWithoutStr8Format = objectMapper.writeValueAsBytes(str8LengthString);
 ```
 
-### Serialize using non-String as a key of Map
+### Serialize integer map keys as MessagePack integers
 
-When you want to use non-String value as a key of Map, use `MessagePackKeySerializer` for key serialization.
+Map keys are written as strings, the same text Jackson writes for JSON, so every key reads
+back through its usual `KeyDeserializer`. To write `Integer`, `Long`, `Short` and `Byte` keys
+as MessagePack integers instead, enable integer keys:
 
 ```java
-@JsonSerialize(keyUsing = MessagePackKeySerializer.class)
-private Map<Integer, String> intMap = new HashMap<>();
+ObjectMapper objectMapper = new MessagePackMapper(
+        new MessagePackFactoryBuilder().supportIntegerKeys(true).build());
 
-  :
-
-intMap.put(42, "Hello");
-
-ObjectMapper objectMapper = new MessagePackMapper();
-byte[] bytes = objectMapper.writeValueAsBytes(intMap);
+byte[] bytes = objectMapper.writeValueAsBytes(Collections.singletonMap(42, "Hello"));   // {42: "Hello"}
 
 Map<Integer, String> deserialized = objectMapper.readValue(bytes, new TypeReference<Map<Integer, String>>() {});
 System.out.println(deserialized);   // => {42=Hello}
 ```
 
-To apply it to every map key without annotating each field, register it through a module:
+Other key types stay strings either way.
+
+### Use an object as a map key
+
+A key of any other type is written as the same string Jackson writes for JSON: the value of
+its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. The mapper must be able to
+build the type back from that string: through a single-`String` constructor, a static
+`valueOf(String)` or `fromString(String)`, a `@JsonCreator` factory taking one `String`, a
+`@JsonDeserialize(keyUsing = ...)` on the class or on the map property, or a `KeyDeserializer`
+registered on the mapper. Otherwise writing the key fails with an `InvalidDefinitionException`, because it could
+not be read back.
 
 ```java
-SimpleModule module = new SimpleModule().addKeySerializer(Object.class, new MessagePackKeySerializer());
-ObjectMapper objectMapper = MessagePackMapper.builder().addModule(module).build();
+public class UserId {
+    private final String value;
+
+    @JsonCreator
+    public UserId(String value) { this.value = value; }
+
+    @JsonKey
+    public String value() { return value; }
+
+    // equals() and hashCode() on value
+}
+
+ObjectMapper objectMapper = new MessagePackMapper();
+
+byte[] bytes = objectMapper.writeValueAsBytes(Collections.singletonMap(new UserId("u-1"), "Alice"));   // {"u-1": "Alice"}
+
+Map<UserId, String> deserialized = objectMapper.readValue(bytes, new TypeReference<Map<UserId, String>>() {});
 ```
+
+For the same reason a map, a collection or an array (other than `byte[]`) cannot be a key.
+Jackson's JSON output writes such keys as their `toString()` and fails only when reading them;
+this library refuses them when writing. A key serializer you register yourself is not checked,
+so pair it with a matching `KeyDeserializer`.
+
+This check, like the integer handling of `Short` and `Byte` keys, is part of `MessagePackMapper`;
+a plain `ObjectMapper` built on `MessagePackFactory` does not have it.
 
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
