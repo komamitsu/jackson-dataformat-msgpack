@@ -16,6 +16,7 @@
 package org.komamitsu.jackson.dataformat.msgpack;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonKey;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.junit.jupiter.api.Test;
 import org.msgpack.core.MessagePack;
@@ -23,18 +24,22 @@ import org.msgpack.core.MessageUnpacker;
 import org.msgpack.value.ValueType;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.exc.InvalidDefinitionException;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Writes a one-entry map and reads it back, checking what the key became on the wire and
@@ -73,6 +78,36 @@ public class MapKeyRoundTripTest
         public boolean equals(Object o)
         {
             return o instanceof Code && ((Code) o).value.equals(value);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return value.hashCode();
+        }
+    }
+
+    // The README's example: @JsonKey gives the key's text, @JsonCreator builds it back.
+    public static class UserId
+    {
+        private final String value;
+
+        @JsonCreator
+        public UserId(String value)
+        {
+            this.value = value;
+        }
+
+        @JsonKey
+        public String value()
+        {
+            return value;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            return o instanceof UserId && ((UserId) o).value.equals(value);
         }
 
         @Override
@@ -199,6 +234,7 @@ public class MapKeyRoundTripTest
         assertRoundTrip(INTEGER_KEYS, Instant.ofEpochSecond(1700000000L, 123000000), ValueType.STRING,
                 new TypeReference<Map<Instant, String>>() {});
         assertRoundTrip(INTEGER_KEYS, new Code("c-1"), ValueType.STRING, new TypeReference<Map<Code, String>>() {});
+        assertRoundTrip(INTEGER_KEYS, new UserId("u-1"), ValueType.STRING, new TypeReference<Map<UserId, String>>() {});
         assertRoundTrip(INTEGER_KEYS, new Name("n-1"), ValueType.STRING, new TypeReference<Map<Name, String>>() {});
     }
 
@@ -209,6 +245,27 @@ public class MapKeyRoundTripTest
         byte[] key = {1, (byte) 0xff, 0};
         byte[] back = roundTrip(INTEGER_KEYS, key, ValueType.STRING, new TypeReference<Map<byte[], String>>() {});
         assertArrayEquals(key, back);
+    }
+
+    // A map or collection key is written as its toString(), and Jackson has no key deserializer
+    // to turn that back into a map or a collection, as in JSON.
+    @Test
+    public void aMapOrCollectionKeyCannotBeReadBack() throws IOException
+    {
+        byte[] listKey = INTEGER_KEYS.writeValueAsBytes(Collections.singletonMap(Arrays.asList(1, 2), "v"));
+        assertEquals(ValueType.STRING, keyType(listKey));
+        assertEquals(Collections.singletonMap("[1, 2]", "v"),
+                INTEGER_KEYS.readValue(listKey, new TypeReference<Map<String, String>>() {}));
+        assertThrows(InvalidDefinitionException.class,
+                () -> INTEGER_KEYS.readValue(listKey, new TypeReference<Map<List<Integer>, String>>() {}));
+
+        byte[] mapKey = INTEGER_KEYS.writeValueAsBytes(
+                Collections.singletonMap(Collections.singletonMap("a", 1), "v"));
+        assertEquals(ValueType.STRING, keyType(mapKey));
+        assertEquals(Collections.singletonMap("{a=1}", "v"),
+                INTEGER_KEYS.readValue(mapKey, new TypeReference<Map<String, String>>() {}));
+        assertThrows(InvalidDefinitionException.class,
+                () -> INTEGER_KEYS.readValue(mapKey, new TypeReference<Map<Map<String, Integer>, String>>() {}));
     }
 
     // A type that is a map as a value is still a string as a key (its toString()), never a map.

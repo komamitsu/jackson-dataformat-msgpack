@@ -218,6 +218,36 @@ System.out.println(deserialized);   // => {42=Hello}
 
 Other key types stay strings either way.
 
+### Use an object as a map key
+
+A key of any other type is written as the same string Jackson writes for JSON: the value of
+its `@JsonKey` or `@JsonValue` accessor, otherwise its `toString()`. To read such a key back,
+give the type a way to be built from that string, such as a single-`String` constructor or a
+`@JsonCreator` factory, or register a `KeyDeserializer`.
+
+```java
+public class UserId {
+    private final String value;
+
+    @JsonCreator
+    public UserId(String value) { this.value = value; }
+
+    @JsonKey
+    public String value() { return value; }
+
+    // equals() and hashCode() on value
+}
+
+ObjectMapper objectMapper = new MessagePackMapper();
+
+byte[] bytes = objectMapper.writeValueAsBytes(Collections.singletonMap(new UserId("u-1"), "Alice"));   // {"u-1": "Alice"}
+
+Map<UserId, String> deserialized = objectMapper.readValue(bytes, new TypeReference<Map<UserId, String>>() {});
+```
+
+A map or a collection cannot be a key: it is written as its `toString()`, and Jackson has no
+way to turn that back into a map or a collection, as in JSON.
+
 ### Serialize and deserialize BigDecimal as str type internally in MessagePack format
 
 By default, for backward compatibility, a BigDecimal is written as a MessagePack integer if it has no fractional part, and otherwise as a float64 if that represents it exactly. A value that fits neither (too many digits for a double, or a magnitude beyond 64-bit integers) fails with `IllegalArgumentException`. So we strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` to internally handle BigDecimal values as String.
