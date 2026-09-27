@@ -3,8 +3,9 @@
 Measured on the same machine as the earlier files, run back to back:
 
 - Before: `c2d1248` (Write scalar values through one verify-and-wrap helper)
-- After: `1af13b5`, which adds `f8695a4` below and `1af13b5` (repeated parser errors built in
-  one place, a read-side change that no write benchmark runs)
+- After: `1af13b5`. Two commits on top of the before state: `f8695a4` (the change below) and
+  a read-side change that builds repeated parser errors in one place, which no write benchmark
+  runs
 
 The JMH command of this run was not recorded, so it is not given here.
 
