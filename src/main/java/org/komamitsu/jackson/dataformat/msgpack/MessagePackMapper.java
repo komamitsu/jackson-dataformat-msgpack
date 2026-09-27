@@ -29,6 +29,7 @@ import tools.jackson.databind.module.SimpleModule;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.UUID;
 
 public class MessagePackMapper extends ObjectMapper
 {
@@ -43,6 +44,11 @@ public class MessagePackMapper extends ObjectMapper
             addModule(new SimpleModule("msgpack-small-integer-keys")
                     .addKeySerializer(Short.class, new SmallIntegerKeySerializer())
                     .addKeySerializer(Byte.class, new SmallIntegerKeySerializer()));
+            // Jackson writes a UUID as 16 bytes of binary for a format that has binary, but the
+            // parser gives a bin value to text-based deserializers as its UTF-8 decoding, which
+            // UUIDDeserializer cannot parse. As its 36-character string it reads back.
+            withConfigOverride(UUID.class,
+                    o -> o.setFormat(JsonFormat.Value.forShape(JsonFormat.Shape.STRING)));
         }
 
         protected Builder(StateImpl state)

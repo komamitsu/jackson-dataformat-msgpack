@@ -48,7 +48,7 @@ flowchart LR
 | `MessagePackReader` | Decodes values from a byte array or an `InputStream` through a buffer. |
 | `MessagePackReadContext` | Jackson `TokenStreamContext` for reading: expected element counts, current name. |
 | `MessageFormat` / `Code` | The format-byte table of the MessagePack spec. |
-| `MessagePackMapper` | Jackson `ObjectMapper` for this format. Writes `Short` and `Byte` map keys through `writePropertyId`, as Jackson does for `Integer` and `Long`, and registers `UnreadableKeyGuard` (2.6). |
+| `MessagePackMapper` | Jackson `ObjectMapper` for this format. Writes `Short` and `Byte` map keys through `writePropertyId`, as Jackson does for `Integer` and `Long`, writes a `UUID` value as its string rather than 16 bytes of binary so it reads back, and registers `UnreadableKeyGuard` (2.6). |
 | `TimestampExtensionModule`, `MessagePackExtensionType`, `ExtensionTypeCustomDeserializers` | Extension type (-1 timestamp, and user-defined types). |
 
 msgpack-core is not used at runtime. It is a test dependency, used as the reference
