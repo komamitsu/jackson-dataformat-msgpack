@@ -1,7 +1,12 @@
 # Reading an integer without boxing it
 
-Same machine as the earlier files, the commit and its parent run back to back, with
-`-prof gc` for the allocation figures. The exact JMH options of this run were not recorded.
+Same machine as the earlier files, with `-prof gc` for the allocation figures, run back to
+back:
+
+- Before: `d2d774e` (Name the context methods for what they do)
+- After: `1037af9` below
+
+The rest of the JMH command of this run was not recorded, so it is not given here.
 
 ## Change
 

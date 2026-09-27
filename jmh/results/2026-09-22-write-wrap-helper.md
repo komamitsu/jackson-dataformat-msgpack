@@ -1,7 +1,12 @@
 # One wrap helper for keys and container headers
 
-Measured on the same machine as the earlier files, the commit and its parent run back to
-back. The exact JMH options of this run were not recorded.
+Measured on the same machine as the earlier files, run back to back:
+
+- Before: `c2d1248` (Write scalar values through one verify-and-wrap helper)
+- After: `1af13b5`, which adds `f8695a4` below and `1af13b5` (repeated parser errors built in
+  one place, a read-side change that no write benchmark runs)
+
+The JMH command of this run was not recorded, so it is not given here.
 
 ## Change
 
