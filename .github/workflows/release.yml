@@ -19,6 +19,13 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v5
+      - name: Check that the tag matches the project version
+        run: |
+          version=$(./gradlew -q properties --property version | sed -n 's/^version: //p')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match project version $version" >&2
+            exit 1
+          fi
       - name: Build and test
         run: ./gradlew build
       - name: Publish with JReleaser
