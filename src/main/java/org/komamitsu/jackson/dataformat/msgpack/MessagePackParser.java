@@ -57,11 +57,13 @@ public class MessagePackParser
 
     private enum Type
     {
-        INT, LONG, DOUBLE, STRING, BYTES, BOOL, BIG_INT, EXT, NULL
+        INT, LONG, FLOAT, DOUBLE, STRING, BYTES, BOOL, BIG_INT, EXT, NULL
     }
     private Type type;
     private int intValue;
     private long longValue;
+    // Holds FLOAT (a float32 on the wire) as well as DOUBLE: a double represents every float
+    // exactly, so the numeric conversions are shared and only the reported type differs.
     private double doubleValue;
     private boolean booleanValue;
     private byte[] bytesValue;
@@ -231,10 +233,10 @@ public class MessagePackParser
                 }
                 break;
             case FLOAT:
-                type = Type.DOUBLE;
+                type = format == MessageFormat.FLOAT32 ? Type.FLOAT : Type.DOUBLE;
                 doubleValue = reader.unpackDouble();
                 if (isObjectValueSet) {
-                    streamReadContext.setCurrentName(String.valueOf(doubleValue));
+                    streamReadContext.setCurrentName(floatingText());
                     nextToken = JsonToken.PROPERTY_NAME;
                 }
                 else {
@@ -339,8 +341,9 @@ public class MessagePackParser
                 return String.valueOf(intValue);
             case LONG:
                 return String.valueOf(longValue);
+            case FLOAT:
             case DOUBLE:
-                return String.valueOf(doubleValue);
+                return floatingText();
             case BOOL:
                 return Boolean.toString(booleanValue);
             case BIG_INT:
@@ -427,6 +430,7 @@ public class MessagePackParser
                 return extensionTypeValue.getData();
             case INT:
             case LONG:
+            case FLOAT:
             case DOUBLE:
             case BOOL:
             case BIG_INT:
@@ -448,6 +452,8 @@ public class MessagePackParser
                 return intValue;
             case LONG:
                 return longValue;
+            case FLOAT:
+                return (float) doubleValue;
             case DOUBLE:
                 return doubleValue;
             case BIG_INT:
@@ -477,6 +483,7 @@ public class MessagePackParser
                     return _reportError("Numeric value (" + longValue + ") out of range for `int`");
                 }
                 return (int) longValue;
+            case FLOAT:
             case DOUBLE:
                 if (!Double.isFinite(doubleValue)) {
                     return _reportError("Cannot convert non-finite double (" + doubleValue + ") to `int`");
@@ -514,6 +521,7 @@ public class MessagePackParser
                 return intValue;
             case LONG:
                 return longValue;
+            case FLOAT:
             case DOUBLE:
                 if (!Double.isFinite(doubleValue)) {
                     return _reportError("Cannot convert non-finite double (" + doubleValue + ") to `long`");
@@ -552,6 +560,7 @@ public class MessagePackParser
                 return BigInteger.valueOf(intValue);
             case LONG:
                 return BigInteger.valueOf(longValue);
+            case FLOAT:
             case DOUBLE:
                 if (!Double.isFinite(doubleValue)) {
                     return _reportError("Cannot convert non-finite double (" + doubleValue + ") to BigInteger");
@@ -583,6 +592,7 @@ public class MessagePackParser
                 return (float) intValue;
             case LONG:
                 return (float) longValue;
+            case FLOAT:
             case DOUBLE:
                 return (float) doubleValue;
             case BIG_INT:
@@ -611,6 +621,7 @@ public class MessagePackParser
                 return intValue;
             case LONG:
                 return (double) longValue;
+            case FLOAT:
             case DOUBLE:
                 return doubleValue;
             case BIG_INT:
@@ -637,11 +648,12 @@ public class MessagePackParser
                 return BigDecimal.valueOf(intValue);
             case LONG:
                 return BigDecimal.valueOf(longValue);
+            case FLOAT:
             case DOUBLE:
                 if (!Double.isFinite(doubleValue)) {
                     return _reportError("Cannot convert non-finite double (" + doubleValue + ") to BigDecimal");
                 }
-                return BigDecimal.valueOf(doubleValue);
+                return new BigDecimal(floatingText());
             case BIG_INT:
                 return new BigDecimal(biValue);
             case NULL:
@@ -685,6 +697,7 @@ public class MessagePackParser
                 }
             case INT:
             case LONG:
+            case FLOAT:
             case DOUBLE:
             case BOOL:
             case BIG_INT:
@@ -707,6 +720,8 @@ public class MessagePackParser
                 return NumberType.INT;
             case LONG:
                 return NumberType.LONG;
+            case FLOAT:
+                return NumberType.FLOAT;
             case DOUBLE:
                 return NumberType.DOUBLE;
             case BIG_INT:
@@ -720,6 +735,24 @@ public class MessagePackParser
             default:
                 throw unexpectedType();
         }
+    }
+
+    @Override
+    public NumberTypeFP getNumberTypeFP()
+    {
+        if (type == Type.FLOAT) {
+            return NumberTypeFP.FLOAT32;
+        }
+        if (type == Type.DOUBLE) {
+            return NumberTypeFP.DOUBLE64;
+        }
+        return NumberTypeFP.UNKNOWN;
+    }
+
+    // The shortest text of the floating-point value, as the type it had on the wire.
+    private String floatingText()
+    {
+        return type == Type.FLOAT ? Float.toString((float) doubleValue) : Double.toString(doubleValue);
     }
 
     @Override
@@ -819,7 +852,7 @@ public class MessagePackParser
     @Override
     public boolean isNaN()
     {
-        if (type == Type.DOUBLE) {
+        if (type == Type.FLOAT || type == Type.DOUBLE) {
             return Double.isNaN(doubleValue) || Double.isInfinite(doubleValue);
         }
         return false;

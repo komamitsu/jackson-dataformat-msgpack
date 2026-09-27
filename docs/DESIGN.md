@@ -384,6 +384,12 @@ Values are decoded eagerly in `_nextToken` (numbers into the narrowest of int/lo
 strings into a `String`), so the accessors only return fields. `nextToken()` after end of
 input or after `close()` returns null and clears the current token.
 
+A float keeps the width it had on the wire, as in Jackson's CBOR parser: a float32 is reported
+as `NumberType.FLOAT` and `NumberTypeFP.FLOAT32`, so untyped binding gives a `Float`, and its
+text is the float's own (`0.1`, not `0.10000000149011612`); a float64 is `DOUBLE` and
+`DOUBLE64`. Both are held in one `double`, which represents every float exactly, so the numeric
+conversions are shared.
+
 ### 3.3 Property-name canonicalization
 
 Property names go through the same `ByteQuadsCanonicalizer` that Jackson's JSON, CBOR and
