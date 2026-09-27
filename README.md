@@ -23,14 +23,14 @@ How it works inside is described in [docs/DESIGN.md](docs/DESIGN.md).
 <dependency>
   <groupId>org.komamitsu</groupId>
   <artifactId>jackson-dataformat-msgpack</artifactId>
-  <version>(version)</version>
+  <version>3.0.0</version>
 </dependency>
 ```
 
 ### Sbt
 
 ```scala
-libraryDependencies += "org.komamitsu" % "jackson-dataformat-msgpack" % "(version)"
+libraryDependencies += "org.komamitsu" % "jackson-dataformat-msgpack" % "3.0.0"
 ```
 
 ### Gradle
@@ -41,7 +41,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.komamitsu:jackson-dataformat-msgpack:(version)'
+    implementation 'org.komamitsu:jackson-dataformat-msgpack:3.0.0'
 }
 ```
 

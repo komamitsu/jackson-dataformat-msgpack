@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "org.komamitsu"
-version = "3.0.0-SNAPSHOT"
+version = "3.0.0"
 description = "Jackson 3.x extension that adds support for MessagePack"
 
 java {
