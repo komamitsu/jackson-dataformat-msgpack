@@ -50,6 +50,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -176,7 +177,7 @@ public class MessagePackParserTest
                 // #7
                 bitmap |= 1 << 8;
                 @SuppressWarnings("unchecked")
-                List<? extends Serializable> expected = Arrays.asList((double) Float.MIN_VALUE, null, "array_child_str");
+                List<? extends Serializable> expected = Arrays.asList(Float.MIN_VALUE, null, "array_child_str");
                 assertEquals(expected, v);
             }
             else if (k.equals("bool")) {
@@ -265,7 +266,7 @@ public class MessagePackParserTest
         // #4
         assertEquals(Long.MIN_VALUE, array.get(i++));
         // #5
-        assertEquals(Float.MAX_VALUE, (Double) array.get(i++), 0.001f);
+        assertEquals(Float.MAX_VALUE, array.get(i++));
         // #6
         assertEquals(Double.MIN_VALUE, (Double) array.get(i++), 0.001f);
         // #7
@@ -967,6 +968,77 @@ public class MessagePackParserTest
         assertEquals(originalMap.size(), deserializedMap.size());
         for (Map.Entry<UUID, UUID> entry : originalMap.entrySet()) {
             assertEquals(entry.getValue(), deserializedMap.get(entry.getKey()));
+        }
+    }
+
+    // A float32 on the wire is reported as a float, as Jackson's CBOR parser does, so its type
+    // and its shortest text survive; a float64 stays a double.
+    @Test
+    public void aFloat32IsReportedAsAFloat() throws IOException
+    {
+        MessagePacker packer = MessagePack.newDefaultPacker(out);
+        packer.packArrayHeader(2).packFloat(0.1f).packDouble(0.1);
+        packer.close();
+
+        try (JsonParser p = factory.createParser(ObjectReadContext.empty(), out.toByteArray())) {
+            assertEquals(JsonToken.START_ARRAY, p.nextToken());
+
+            assertEquals(JsonToken.VALUE_NUMBER_FLOAT, p.nextToken());
+            assertEquals(JsonParser.NumberType.FLOAT, p.getNumberType());
+            assertEquals(JsonParser.NumberTypeFP.FLOAT32, p.getNumberTypeFP());
+            assertEquals(Float.valueOf(0.1f), p.getNumberValue());
+            assertEquals(0.1f, p.getFloatValue());
+            assertEquals((double) 0.1f, p.getDoubleValue());
+            assertEquals("0.1", p.getString());
+
+            assertEquals(JsonToken.VALUE_NUMBER_FLOAT, p.nextToken());
+            assertEquals(JsonParser.NumberType.DOUBLE, p.getNumberType());
+            assertEquals(JsonParser.NumberTypeFP.DOUBLE64, p.getNumberTypeFP());
+            assertEquals(Double.valueOf(0.1), p.getNumberValue());
+            assertEquals("0.1", p.getString());
+        }
+    }
+
+    // Untyped binding keeps the width of the number on the wire.
+    @Test
+    public void anUntypedFloat32ReadsBackAsAFloat() throws IOException
+    {
+        MessagePacker packer = MessagePack.newDefaultPacker(out);
+        packer.packMapHeader(3)
+                .packString("f").packFloat(0.1f)
+                .packString("d").packDouble(0.1)
+                .packString("nan").packFloat(Float.NaN);
+        packer.close();
+
+        Map<String, Object> map = objectMapper.readValue(out.toByteArray(), new TypeReference<Map<String, Object>>() {});
+        assertEquals(Float.valueOf(0.1f), map.get("f"));
+        assertEquals(Double.valueOf(0.1), map.get("d"));
+        assertEquals(Float.valueOf(Float.NaN), map.get("nan"));
+    }
+
+    // A Float written into a Map comes back as the same Float through untyped binding.
+    @Test
+    public void aFloatRoundTripsThroughUntypedBinding() throws IOException
+    {
+        Map<String, Object> in = new LinkedHashMap<>();
+        in.put("f", 0.1f);
+        in.put("d", 0.1);
+        byte[] bytes = objectMapper.writeValueAsBytes(in);
+        assertEquals(in, objectMapper.readValue(bytes, new TypeReference<Map<String, Object>>() {}));
+    }
+
+    // A float32 key is named by the float's own text, not its widened double.
+    @Test
+    public void aFloat32KeyIsNamedByItsFloatText() throws IOException
+    {
+        MessagePacker packer = MessagePack.newDefaultPacker(out);
+        packer.packMapHeader(1).packFloat(0.1f).packInt(1);
+        packer.close();
+
+        try (JsonParser p = factory.createParser(ObjectReadContext.empty(), out.toByteArray())) {
+            assertEquals(JsonToken.START_OBJECT, p.nextToken());
+            assertEquals(JsonToken.PROPERTY_NAME, p.nextToken());
+            assertEquals("0.1", p.currentName());
         }
     }
 
