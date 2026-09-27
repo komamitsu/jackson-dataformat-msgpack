@@ -1,7 +1,10 @@
+import org.jreleaser.model.Active
+
 plugins {
     id("java-library")
     id("checkstyle")
-    alias(libs.plugins.maven.publish)
+    id("maven-publish")
+    alias(libs.plugins.jreleaser)
 }
 
 group = "org.komamitsu"
@@ -12,6 +15,8 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+    withJavadocJar()
+    withSourcesJar()
 }
 
 repositories {
@@ -31,7 +36,7 @@ dependencies {
 // PackageVersion.java carries the coordinates and version Jackson reports via Versioned.
 // Generate it from the Gradle project so it cannot drift from the published POM.
 val packageDir = "org/komamitsu/jackson/dataformat/msgpack"
-val generatePackageVersion by tasks.registering {
+val generatePackageVersion = tasks.register("generatePackageVersion") {
     val outputDir = layout.buildDirectory.dir("generated/sources/packageVersion/java/main")
     val projectVersion = project.version.toString()
     val projectGroup = project.group.toString()
@@ -128,32 +133,63 @@ checkstyle {
     maxWarnings = 0
 }
 
-mavenPublishing {
-    publishToMavenCentral()
-    signAllPublications()
+// Publications are staged locally; JReleaser signs them and uploads them to the Central Portal.
+val stagingDir = layout.buildDirectory.dir("staging-deploy")
 
-    pom {
-        name = project.name
-        description = project.description
-        url = "https://github.com/komamitsu/jackson-dataformat-msgpack"
-        licenses {
-            license {
-                name = "Apache-2.0"
-                url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+
+            pom {
+                name = project.name
+                description = project.description
+                url = "https://github.com/komamitsu/jackson-dataformat-msgpack"
+                licenses {
+                    license {
+                        name = "Apache-2.0"
+                        url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+                    }
+                }
+                developers {
+                    developer {
+                        id = "komamitsu"
+                        name = "Mitsunori Komatsu"
+                        email = "komamitsu@gmail.com"
+                        url = "https://github.com/komamitsu"
+                    }
+                }
+                scm {
+                    url = "https://github.com/komamitsu/jackson-dataformat-msgpack"
+                    connection = "scm:git:git://github.com/komamitsu/jackson-dataformat-msgpack.git"
+                    developerConnection = "scm:git:ssh://git@github.com/komamitsu/jackson-dataformat-msgpack.git"
+                }
             }
         }
-        developers {
-            developer {
-                id = "komamitsu"
-                name = "Mitsunori Komatsu"
-                email = "komamitsu@gmail.com"
-                url = "https://github.com/komamitsu"
-            }
+    }
+    repositories {
+        maven {
+            name = "staging"
+            url = uri(stagingDir)
         }
-        scm {
-            url = "https://github.com/komamitsu/jackson-dataformat-msgpack"
-            connection = "scm:git:git://github.com/komamitsu/jackson-dataformat-msgpack.git"
-            developerConnection = "scm:git:ssh://git@github.com/komamitsu/jackson-dataformat-msgpack.git"
+    }
+}
+
+jreleaser {
+    signing {
+        pgp {
+            active = Active.ALWAYS
+            armored = true
+        }
+    }
+    deploy {
+        maven {
+            mavenCentral.create("sonatype") {
+                active = Active.ALWAYS
+                url = "https://central.sonatype.com/api/v1/publisher"
+                applyMavenCentralRules = true
+                stagingRepository(stagingDir.get().asFile.path)
+            }
         }
     }
 }
