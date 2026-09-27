@@ -990,12 +990,14 @@ public class MessagePackParserTest
             assertEquals(0.1f, p.getFloatValue());
             assertEquals((double) 0.1f, p.getDoubleValue());
             assertEquals("0.1", p.getString());
+            assertEquals(new BigDecimal("0.1"), p.getDecimalValue());
 
             assertEquals(JsonToken.VALUE_NUMBER_FLOAT, p.nextToken());
             assertEquals(JsonParser.NumberType.DOUBLE, p.getNumberType());
             assertEquals(JsonParser.NumberTypeFP.DOUBLE64, p.getNumberTypeFP());
             assertEquals(Double.valueOf(0.1), p.getNumberValue());
             assertEquals("0.1", p.getString());
+            assertEquals(new BigDecimal("0.1"), p.getDecimalValue());
         }
     }
 
