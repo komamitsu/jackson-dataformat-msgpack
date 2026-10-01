@@ -49,7 +49,7 @@ dependencies {
 
 ### Serialization/Deserialization of POJO
 
-Only thing you need to do is to instantiate `MessagePackMapper`, a `tools.jackson.databind.ObjectMapper` for MessagePack. And then, you can use it for MessagePack format data in the same way as jackson-databind.
+All you need is a `MessagePackMapper`, which is a `tools.jackson.databind.ObjectMapper` for MessagePack. You can then use it for MessagePack data in the same way as jackson-databind.
 
 ```java
 // Instantiate ObjectMapper for MessagePack
