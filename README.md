@@ -49,11 +49,11 @@ dependencies {
 
 ### Serialization/Deserialization of POJO
 
-Only thing you need to do is to instantiate `MessagePackFactory` and pass it to the constructor of `tools.jackson.databind.ObjectMapper`. And then, you can use it for MessagePack format data in the same way as jackson-databind.
+All you need is a `MessagePackMapper`, which is a `tools.jackson.databind.ObjectMapper` for MessagePack. You can then use it for MessagePack data in the same way as jackson-databind.
 
 ```java
 // Instantiate ObjectMapper for MessagePack
-ObjectMapper objectMapper = new ObjectMapper(new MessagePackFactory());
+ObjectMapper objectMapper = new MessagePackMapper();
 
 // Serialize a Java object to byte array
 ExamplePojo pojo = new ExamplePojo("komamitsu");
@@ -62,12 +62,6 @@ byte[] bytes = objectMapper.writeValueAsBytes(pojo);
 // Deserialize the byte array to a Java object
 ExamplePojo deserialized = objectMapper.readValue(bytes, ExamplePojo.class);
 System.out.println(deserialized.getName()); // => komamitsu
-```
-
-Or more easily:
-
-```java
-ObjectMapper objectMapper = new MessagePackMapper();
 ```
 
 We strongly recommend calling `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` if you serialize and/or deserialize BigInteger/BigDecimal values. See [Serialize and deserialize BigDecimal as str type internally in MessagePack format](#serialize-and-deserialize-bigdecimal-as-str-type-internally-in-messagepack-format) for details.
@@ -281,9 +275,12 @@ System.out.println(objectMapper.readValue(converted, Pojo.class));   // => Pojo{
 `MessagePackMapper.Builder#handleBigIntegerAndBigDecimalAsString()` is equivalent to the following configuration.
 
 ```java
-ObjectMapper objectMapper = new ObjectMapper(new MessagePackFactory());
-objectMapper.configOverride(BigInteger.class).setFormat(JsonFormat.Value.forShape(JsonFormat.Shape.STRING));
-objectMapper.configOverride(BigDecimal.class).setFormat(JsonFormat.Value.forShape(JsonFormat.Shape.STRING));
+ObjectMapper objectMapper = MessagePackMapper.builder()
+        .withConfigOverride(BigInteger.class,
+                o -> o.setFormat(JsonFormat.Value.forShape(JsonFormat.Shape.STRING)))
+        .withConfigOverride(BigDecimal.class,
+                o -> o.setFormat(JsonFormat.Value.forShape(JsonFormat.Shape.STRING)))
+        .build();
 ```
 
 ### Serialize and deserialize Instant instances as MessagePack extension type
@@ -325,7 +322,7 @@ extTypeCustomDesers.addCustomDeser((byte) 59, data -> {
     return "Not Java";
 });
 
-ObjectMapper objectMapper = new ObjectMapper(
+ObjectMapper objectMapper = new MessagePackMapper(
         new MessagePackFactory().setExtTypeCustomDesers(extTypeCustomDesers));
 
 System.out.println(objectMapper.readValue(bytes, Object.class));
